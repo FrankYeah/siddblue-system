@@ -8,6 +8,7 @@ import {
   FileDown,
   Link as LinkIcon,
   Copy,
+  CopyPlus,
   Check,
   Sparkles,
   FilePlus2,
@@ -15,6 +16,9 @@ import {
   LogOut,
   ExternalLink,
   ClipboardList,
+  BadgeCheck,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
 import {
@@ -76,6 +80,15 @@ export default function AdminEditor({
   }
   function removeItem(i: number) {
     setForm((f) => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
+  }
+  function moveItem(i: number, dir: -1 | 1) {
+    setForm((f) => {
+      const j = i + dir;
+      if (j < 0 || j >= f.items.length) return f;
+      const items = [...f.items];
+      [items[i], items[j]] = [items[j], items[i]];
+      return { ...f, items };
+    });
   }
 
   // ── 動態陣列 (流程 / 補充說明) ──
@@ -154,6 +167,25 @@ export default function AdminEditor({
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch {
       notify("讀取報價單失敗");
+    }
+  }
+
+  // ── 複製為新報價單 (載入資料，存檔時建立副本) ──
+  async function duplicateQuote(id: string) {
+    try {
+      const res = await fetch(`/api/quotes/${id}`);
+      if (!res.ok) throw new Error();
+      const { quote } = (await res.json()) as { quote: Quote };
+      const input = quoteToInput(quote);
+      input.clientName = `${input.clientName} (複本)`;
+      input.quoteDate = new Date().toISOString().slice(0, 10);
+      setForm(input);
+      setCurrentId(null);
+      setSavedLink("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      notify("已載入複本，按「儲存並生成連結」即可建立新報價單");
+    } catch {
+      notify("複製失敗");
     }
   }
 
@@ -290,14 +322,30 @@ export default function AdminEditor({
                     onClick={() => editQuote(q.id)}
                     className="min-w-0 flex-1 text-left"
                   >
-                    <div className="truncate font-medium text-paper-text">
-                      {q.clientName || "(未命名)"}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate font-medium text-paper-text">
+                        {q.clientName || "(未命名)"}
+                      </span>
+                      {q.acceptedAt && (
+                        <BadgeCheck
+                          size={14}
+                          className="shrink-0 text-emerald-600"
+                          aria-label="已確認"
+                        />
+                      )}
                     </div>
                     <div className="text-xs text-paper-muted">
                       {q.quoteDate} · {formatNT(q.total)}
                     </div>
                   </button>
                   <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                    <button
+                      onClick={() => duplicateQuote(q.id)}
+                      className="rounded p-1 text-paper-muted hover:text-brand-600"
+                      title="複製為新報價單"
+                    >
+                      <CopyPlus size={14} />
+                    </button>
                     <a
                       href={`/quote/${q.id}`}
                       target="_blank"
@@ -396,7 +444,7 @@ export default function AdminEditor({
                     <th className="px-2 font-medium">功能說明</th>
                     <th className="w-24 px-2 font-medium">工時</th>
                     <th className="w-32 px-2 font-medium">費用 (NT$)</th>
-                    <th className="w-10" />
+                    <th className="w-20" />
                   </tr>
                 </thead>
                 <tbody>
@@ -436,14 +484,34 @@ export default function AdminEditor({
                           onChange={(e) => updateItem(i, "amount", e.target.value)}
                         />
                       </td>
-                      <td className="px-1 pt-2 text-center">
-                        <button
-                          onClick={() => removeItem(i)}
-                          className="rounded p-1.5 text-paper-muted hover:bg-red-50 hover:text-red-600"
-                          title="刪除項目"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                      <td className="px-1 pt-1.5">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <div className="flex flex-col">
+                            <button
+                              onClick={() => moveItem(i, -1)}
+                              disabled={i === 0}
+                              className="rounded p-0.5 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                              title="上移"
+                            >
+                              <ChevronUp size={14} />
+                            </button>
+                            <button
+                              onClick={() => moveItem(i, 1)}
+                              disabled={i === form.items.length - 1}
+                              className="rounded p-0.5 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                              title="下移"
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                          </div>
+                          <button
+                            onClick={() => removeItem(i)}
+                            className="rounded p-1.5 text-paper-muted hover:bg-red-50 hover:text-red-600"
+                            title="刪除項目"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

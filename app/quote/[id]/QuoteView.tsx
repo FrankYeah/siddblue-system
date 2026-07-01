@@ -12,18 +12,60 @@ import {
   Info,
   Table2,
   Eye,
+  BadgeCheck,
+  Loader2,
 } from "lucide-react";
 import { PaperPlane, SeagullFlock, CodeBraces } from "@/components/BrandDecor";
 import { itemsTotal, formatNT, formatCurrency } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import type { Quote } from "@/lib/types";
 
+function fmtDateTime(iso?: string): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("zh-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export default function QuoteView({ quote }: { quote: Quote }) {
   const [excelPreview, setExcelPreview] = useState(false);
+  const [acceptedAt, setAcceptedAt] = useState<string | undefined>(
+    quote.acceptedAt,
+  );
+  const [acceptedBy, setAcceptedBy] = useState<string | undefined>(
+    quote.acceptedBy,
+  );
+  const [name, setName] = useState("");
+  const [accepting, setAccepting] = useState(false);
   const total = itemsTotal(quote.items);
 
   function print() {
     window.print();
+  }
+
+  async function confirmAccept() {
+    setAccepting(true);
+    try {
+      const res = await fetch(`/api/quotes/${quote.id}/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const { quote: q } = (await res.json()) as {
+          quote: { acceptedAt?: string; acceptedBy?: string };
+        };
+        setAcceptedAt(q.acceptedAt);
+        setAcceptedBy(q.acceptedBy);
+      }
+    } finally {
+      setAccepting(false);
+    }
   }
 
   return (
@@ -92,6 +134,19 @@ export default function QuoteView({ quote }: { quote: Quote }) {
             excelPreview ? "hidden" : ""
           }`}
         >
+          {/* 已確認狀態橫幅 */}
+          {acceptedAt && (
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800">
+              <BadgeCheck size={22} className="shrink-0" />
+              <div className="text-sm">
+                <div className="font-semibold">此報價已確認</div>
+                <div className="text-emerald-700">
+                  由 {acceptedBy} 於 {fmtDateTime(acceptedAt)} 線上確認接受
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 規格明細 */}
           <section className="notion-block">
             <h2 className="section-title mb-4">
@@ -210,6 +265,38 @@ export default function QuoteView({ quote }: { quote: Quote }) {
             </section>
           )}
 
+          {/* 線上確認 (規格確認流程) */}
+          {!acceptedAt && (
+            <section className="notion-block border-brand-200 bg-brand-50/60">
+              <h2 className="section-title mb-2">
+                <BadgeCheck size={18} className="text-brand-500" /> 確認此報價
+              </h2>
+              <p className="mb-4 text-sm text-paper-muted">
+                若以上規格與費用皆無誤，請填寫您的姓名並點擊確認，我們將依此展開專案。
+              </p>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  className="field-input sm:max-w-xs"
+                  placeholder="您的姓名 / 公司名稱"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+                <button
+                  onClick={confirmAccept}
+                  className="btn-primary"
+                  disabled={accepting || !name.trim()}
+                >
+                  {accepting ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <BadgeCheck size={16} />
+                  )}
+                  確認並接受此報價
+                </button>
+              </div>
+            </section>
+          )}
+
           <footer className="pt-4 text-center text-xs text-paper-muted">
             {quote.companyName} · 統一編號 {quote.taxId} ·{" "}
             <CodeBraces className="text-brand-400" /> Siddblue Studio
@@ -218,7 +305,12 @@ export default function QuoteView({ quote }: { quote: Quote }) {
       </div>
 
       {/* ══════════════ 列印 / PDF：企業級 Excel 嚴謹報價單 ══════════════ */}
-      <PrintSheet quote={quote} total={total} />
+      <PrintSheet
+        quote={quote}
+        total={total}
+        acceptedAt={acceptedAt}
+        acceptedBy={acceptedBy}
+      />
     </div>
   );
 }
@@ -226,7 +318,17 @@ export default function QuoteView({ quote }: { quote: Quote }) {
 // ─────────────────────────────────────────────────────────────
 //  正式報價單 (Excel 方格排版) — 螢幕隱藏，列印 / 預覽時顯示
 // ─────────────────────────────────────────────────────────────
-function PrintSheet({ quote, total }: { quote: Quote; total: number }) {
+function PrintSheet({
+  quote,
+  total,
+  acceptedAt,
+  acceptedBy,
+}: {
+  quote: Quote;
+  total: number;
+  acceptedAt?: string;
+  acceptedBy?: string;
+}) {
   return (
     <div className="print-sheet mx-auto max-w-[820px] bg-white p-8 text-black">
       {/* 抬頭 */}
@@ -418,7 +520,15 @@ function PrintSheet({ quote, total }: { quote: Quote; total: number }) {
               </span>
             </td>
             <th className="w-28">客戶簽章</th>
-            <td style={{ width: 180 }} />
+            <td style={{ width: 180, verticalAlign: "middle" }}>
+              {acceptedAt && (
+                <div style={{ fontSize: 10, lineHeight: 1.6 }}>
+                  <div style={{ fontWeight: 700 }}>{acceptedBy}</div>
+                  <div>已於線上確認</div>
+                  <div>{fmtDateTime(acceptedAt)}</div>
+                </div>
+              )}
+            </td>
           </tr>
         </tbody>
       </table>

@@ -32,6 +32,7 @@ function toSummary(q: Quote): QuoteSummary {
     quoteDate: q.quoteDate,
     total: itemsTotal(q.items),
     updatedAt: q.updatedAt,
+    acceptedAt: q.acceptedAt,
   };
 }
 
@@ -87,6 +88,33 @@ export async function updateQuote(
     memStore.set(id, updated);
   }
   return updated;
+}
+
+/** 客戶線上確認接受報價 (公開操作，不需後台驗證) */
+export async function acceptQuote(
+  id: string,
+  name: string,
+): Promise<Quote | null> {
+  const existing = await getQuote(id);
+  if (!existing) return null;
+
+  // 已確認過就保留首次確認記錄，不覆寫
+  if (existing.acceptedAt) return existing;
+
+  const accepted: Quote = {
+    ...existing,
+    acceptedAt: new Date().toISOString(),
+    acceptedBy: name.trim() || existing.clientName,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (KV_ENABLED) {
+    await kv.set(QUOTE_KEY(id), accepted);
+    await kv.zadd(INDEX_KEY, { score: Date.now(), member: id });
+  } else {
+    memStore.set(id, accepted);
+  }
+  return accepted;
 }
 
 /** 刪除報價單 */

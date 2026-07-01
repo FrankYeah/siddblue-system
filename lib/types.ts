@@ -55,6 +55,12 @@ export interface Quote {
   createdAt: string;
   /** 最後更新時間 (ISO 字串) */
   updatedAt: string;
+
+  // ── 客戶線上確認 (規格確認流程) ──
+  /** 客戶確認接受報價的時間 (ISO 字串)，未確認則為空 */
+  acceptedAt?: string;
+  /** 確認人姓名 */
+  acceptedBy?: string;
 }
 
 /** 後台列表使用的精簡摘要 */
@@ -64,7 +70,11 @@ export interface QuoteSummary {
   quoteDate: string;
   total: number;
   updatedAt: string;
+  acceptedAt?: string;
 }
 
-/** 表單輸入 (尚未含系統欄位) */
-export type QuoteInput = Omit<Quote, "id" | "createdAt" | "updatedAt">;
+/** 表單輸入 (不含系統欄位與客戶確認狀態) */
+export type QuoteInput = Omit<
+  Quote,
+  "id" | "createdAt" | "updatedAt" | "acceptedAt" | "acceptedBy"
+>;
