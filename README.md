@@ -1,0 +1,140 @@
+# 西打藍好內容有限公司 — 報價單與規格生成工具
+
+> Next.js (App Router) + Tailwind CSS + Vercel KV
+> 數位專案的「報價 → 規格確認 → 正式報價單 (含大小章)」一站式工具。
+
+---
+
+## ✨ 功能總覽
+
+| 路由 | 說明 |
+| --- | --- |
+| `/` | 品牌首頁（深藍漸層 + 紙飛機 / 海鷗微動畫） |
+| `/admin` | 後台管理：動態項目、即時加總、一鍵範本、CSV 匯出、儲存生成連結 |
+| `/quote/[id]` | 對外規格確認頁（Notion 風格）＋ 一鍵匯出企業級 Excel 報價單 (自動押大小章) |
+| `/api/quotes` | `GET` 列表 / `POST` 建立 |
+| `/api/quotes/[id]` | `GET` 讀取 / `PUT` 更新 / `DELETE` 刪除 |
+| `/api/admin/login` | `POST` 登入 / `DELETE` 登出 |
+
+### 亮點
+- **即時加總**：編輯項目費用時，總計金額即時更新。
+- **一鍵帶入預設範本**：維護級距（大/小/微）、交付流程、付款帳戶、補充說明一次填好。
+- **CSV 匯出**：帶 UTF-8 BOM，Excel 開啟中文不亂碼。
+- **雙版面**：螢幕 = 品牌 Notion 風格；列印 / PDF = 無邊框、方格線的嚴謹 Excel 報價單。
+- **電子大小章**：正式報價單自動載入 `public/assets/company-stamps.png`。
+- **後台密碼保護**：設定 `ADMIN_PASSWORD` 後 `/admin` 與寫入 API 需登入。
+
+---
+
+## 🚀 快速開始
+
+> 需求：**Node.js 18.17+**（本專案使用 Next.js 14）。
+
+```bash
+# 1. 安裝相依套件
+npm install
+
+# 2. 設定環境變數
+cp .env.local.example .env.local
+#   → 填入 Vercel KV 金鑰（見下方）
+
+# 3. 啟動開發伺服器
+npm run dev
+# 打開 http://localhost:3000/admin
+```
+
+> 💡 **本機沒接 KV 也能跑**：若未設定 `KV_REST_API_URL`，系統會自動改用
+> 記憶體儲存（重啟即清空），方便先試 UI；正式上線請務必接上 Vercel KV。
+
+---
+
+## 🔑 Vercel KV 設定
+
+1. Vercel Dashboard → 你的專案 → **Storage** → **Create Database** → 選 **KV (Upstash Redis)**。
+2. 建立後進入該 KV 的 **`.env.local`** 分頁，複製以下金鑰到你的 `.env.local`：
+
+```env
+KV_URL="..."
+KV_REST_API_URL="..."
+KV_REST_API_TOKEN="..."
+KV_REST_API_READ_ONLY_TOKEN="..."
+
+ADMIN_PASSWORD="你的後台密碼"
+NEXT_PUBLIC_SITE_URL="https://your-project.vercel.app"
+```
+
+3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD`）。
+
+### 資料儲存結構
+```
+quote:{id}     → 單筆報價單 (JSON)
+quotes:index   → sorted set，score = 更新時間，供後台列表新→舊排序
+```
+
+---
+
+## 🖨️ 匯出正式報價單（PDF / 列印）
+
+前台 `/quote/[id]` 點擊 **「匯出正式報價單」**：
+- 透過 `window.print()` 觸發瀏覽器列印。
+- CSS `@media print` 會**隱藏 Banner 與所有按鈕**，自動切換為
+  **無邊框、帶格線的 Excel 企業排版**，並帶入公司大小章。
+- 在列印對話框選「另存為 PDF」即可得到 PDF 檔。
+- 想先在螢幕上預覽此版面，可按 **「預覽 Excel 版」** 切換。
+
+> 需要程式化產生 PDF（免手動列印）時，可加裝 `html2pdf.js` 對
+> `.print-sheet` 節點呼叫匯出；目前預設採 CSS 列印方案，零額外相依、排版最穩定。
+
+### 放置大小章
+把去背 PNG 命名為 `company-stamps.png` 放到 `public/assets/`（詳見該資料夾的 README）。
+
+---
+
+## 🎨 視覺識別
+- 主色深藍漸層：`#0052D4 → #4364F7 → #6FB1FC`（海洋與天空）。
+- 紙飛機 / 白色海鷗：`components/BrandDecor.tsx` 內的 SVG + 微動畫。
+- 程式碼括號 `{ }` 點綴，呼應工程質感。
+- 前台採 Notion 風格：淡米色 / 淺灰區塊、細緻邊框、清晰黑字。
+
+---
+
+## 📁 專案結構
+```
+app/
+  layout.tsx            全域版型 / 字型
+  page.tsx              品牌首頁
+  globals.css           Tailwind + 列印 Excel 樣式
+  admin/
+    page.tsx            後台 (server，含驗證)
+    AdminLogin.tsx      密碼登入
+    AdminEditor.tsx     報價編輯器 (主功能)
+  quote/[id]/
+    page.tsx            前台 (server，抓資料)
+    QuoteView.tsx       品牌頁 + 列印 Excel 報價單
+    not-found.tsx       404
+  api/
+    quotes/route.ts         列表 / 建立
+    quotes/[id]/route.ts    讀取 / 更新 / 刪除
+    admin/login/route.ts    登入 / 登出
+lib/
+  types.ts        型別 (Schema)
+  defaults.ts     硬編碼企業預設值
+  kv.ts           Vercel KV 存取層 (+記憶體後援)
+  format.ts       金額 / 加總 (client+server 共用)
+  csv.ts          CSV 匯出
+  normalize.ts    輸入清理
+  auth.ts         後台密碼保護
+components/
+  BrandDecor.tsx  紙飛機 / 海鷗 / { } 裝飾
+public/assets/    company-stamps.png (大小章)
+```
+
+---
+
+## 🏢 已硬編碼的企業預設值（`lib/defaults.ts`）
+- 公司抬頭：**西打藍好內容有限公司**、統一編號 **93662829**
+- 付款帳戶：國泰世華銀行 (013) 基隆分行 (1243)，帳號 1243-3500-9494
+- 維護級距：大調整 5,000–10,000 / 小調整 2,000–3,000 / 微調整 暫不收費
+- 補充說明：10 天內免費微調、交付網站操作說明
+
+需調整預設值，直接編輯 `lib/defaults.ts` 即可。
