@@ -23,6 +23,7 @@ import {
 import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
 import {
   buildDefaultQuoteInput,
+  DEFAULT_ITEMS,
   DEFAULT_MAINTENANCE_RULES,
   DEFAULT_PROCESS_STEPS,
   DEFAULT_SUPPLEMENTARY_NOTES,
@@ -91,23 +92,101 @@ export default function AdminEditor({
     });
   }
 
-  // ── 動態陣列 (流程 / 補充說明) ──
-  function addStringItem(key: "processSteps" | "supplementaryNotes") {
-    setForm((f) => ({ ...f, [key]: [...f[key], ""] }));
+  // ── 補充說明 (string[]) ──
+  function addNote() {
+    setForm((f) => ({ ...f, supplementaryNotes: [...f.supplementaryNotes, ""] }));
   }
-  function updateStringItem(
-    key: "processSteps" | "supplementaryNotes",
+  function updateNote(i: number, value: string) {
+    setForm((f) => {
+      const arr = [...f.supplementaryNotes];
+      arr[i] = value;
+      return { ...f, supplementaryNotes: arr };
+    });
+  }
+  function removeNote(i: number) {
+    setForm((f) => ({
+      ...f,
+      supplementaryNotes: f.supplementaryNotes.filter((_, idx) => idx !== i),
+    }));
+  }
+
+  // ── 專案需求整理 ──
+  function updateBrief(key: keyof QuoteInput["projectBrief"], value: string) {
+    setForm((f) => ({
+      ...f,
+      projectBrief: { ...f.projectBrief, [key]: value },
+    }));
+  }
+
+  // ── 流程步驟 (ProcessStep[]) ──
+  function addProcessStep() {
+    setForm((f) => ({
+      ...f,
+      processSteps: [
+        ...f.processSteps,
+        { title: "", description: "", links: [] },
+      ],
+    }));
+  }
+  function updateProcessStep(
     i: number,
+    key: "title" | "description",
     value: string,
   ) {
     setForm((f) => {
-      const arr = [...f[key]];
-      arr[i] = value;
-      return { ...f, [key]: arr };
+      const steps = [...f.processSteps];
+      steps[i] = { ...steps[i], [key]: value };
+      return { ...f, processSteps: steps };
     });
   }
-  function removeStringItem(key: "processSteps" | "supplementaryNotes", i: number) {
-    setForm((f) => ({ ...f, [key]: f[key].filter((_, idx) => idx !== i) }));
+  function removeProcessStep(i: number) {
+    setForm((f) => ({
+      ...f,
+      processSteps: f.processSteps.filter((_, idx) => idx !== i),
+    }));
+  }
+  function moveProcessStep(i: number, dir: -1 | 1) {
+    setForm((f) => {
+      const j = i + dir;
+      if (j < 0 || j >= f.processSteps.length) return f;
+      const steps = [...f.processSteps];
+      [steps[i], steps[j]] = [steps[j], steps[i]];
+      return { ...f, processSteps: steps };
+    });
+  }
+  function addProcessLink(stepIdx: number) {
+    setForm((f) => {
+      const steps = [...f.processSteps];
+      steps[stepIdx] = {
+        ...steps[stepIdx],
+        links: [...steps[stepIdx].links, { label: "", url: "" }],
+      };
+      return { ...f, processSteps: steps };
+    });
+  }
+  function updateProcessLink(
+    stepIdx: number,
+    linkIdx: number,
+    key: "label" | "url",
+    value: string,
+  ) {
+    setForm((f) => {
+      const steps = [...f.processSteps];
+      const links = [...steps[stepIdx].links];
+      links[linkIdx] = { ...links[linkIdx], [key]: value };
+      steps[stepIdx] = { ...steps[stepIdx], links };
+      return { ...f, processSteps: steps };
+    });
+  }
+  function removeProcessLink(stepIdx: number, linkIdx: number) {
+    setForm((f) => {
+      const steps = [...f.processSteps];
+      steps[stepIdx] = {
+        ...steps[stepIdx],
+        links: steps[stepIdx].links.filter((_, idx) => idx !== linkIdx),
+      };
+      return { ...f, processSteps: steps };
+    });
   }
 
   // ── 維護規則 ──
@@ -140,11 +219,20 @@ export default function AdminEditor({
       ...f,
       paymentInfo: DEFAULT_PAYMENT_INFO,
       summaryText: DEFAULT_SUMMARY_TEXT,
-      processSteps: [...DEFAULT_PROCESS_STEPS],
+      processSteps: DEFAULT_PROCESS_STEPS.map((s) => ({
+        ...s,
+        links: s.links.map((l) => ({ ...l })),
+      })),
       maintenanceRules: DEFAULT_MAINTENANCE_RULES.map((r) => ({ ...r })),
       supplementaryNotes: [...DEFAULT_SUPPLEMENTARY_NOTES],
     }));
     notify("已帶入預設維護與流程範本");
+  }
+
+  // ── 一鍵帶入預設報價項目 ──
+  function loadDefaultItems() {
+    setForm((f) => ({ ...f, items: DEFAULT_ITEMS.map((it) => ({ ...it })) }));
+    notify("已帶入預設網站報價項目");
   }
 
   // ── 新增空白報價單 ──
@@ -422,6 +510,46 @@ export default function AdminEditor({
             </div>
           </section>
 
+          {/* 專案需求整理 */}
+          <section className="notion-block">
+            <h2 className="section-title mb-1">
+              <CodeBraces className="text-brand-500" /> 專案需求整理
+            </h2>
+            <p className="mb-4 text-sm text-paper-muted">
+              初次與客戶討論所聽到的需求與網站設定，會顯示在客戶確認頁。
+            </p>
+            <div className="grid gap-4">
+              <div>
+                <label className="field-label">服務說明</label>
+                <textarea
+                  className="field-input min-h-[90px] resize-y"
+                  placeholder="製作網站的目的、目標客群、導流方式（如導入 LINE 官方、引導現場購買）…"
+                  value={form.projectBrief.serviceDescription}
+                  onChange={(e) =>
+                    updateBrief("serviceDescription", e.target.value)
+                  }
+                />
+              </div>
+              <div>
+                <label className="field-label">網站風格</label>
+                <input
+                  className="field-input"
+                  placeholder="未定 / 白、木、金…"
+                  value={form.projectBrief.siteStyle}
+                  onChange={(e) => updateBrief("siteStyle", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="field-label">網站頁面</label>
+                <textarea
+                  className="field-input min-h-[120px] resize-y"
+                  value={form.projectBrief.sitePages}
+                  onChange={(e) => updateBrief("sitePages", e.target.value)}
+                />
+              </div>
+            </div>
+          </section>
+
           {/* 動態項目表格 */}
           <section className="notion-block">
             <div className="mb-4 flex items-center justify-between">
@@ -519,9 +647,14 @@ export default function AdminEditor({
               </table>
             </div>
 
-            <button onClick={addItem} className="btn-ghost mt-2">
-              <Plus size={16} /> 新增項目
-            </button>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button onClick={addItem} className="btn-ghost">
+                <Plus size={16} /> 新增項目
+              </button>
+              <button onClick={loadDefaultItems} className="btn-ghost">
+                <Sparkles size={16} /> 帶入預設項目
+              </button>
+            </div>
           </section>
 
           {/* 維護與流程備註 */}
@@ -574,31 +707,97 @@ export default function AdminEditor({
 
             {/* 流程說明 */}
             <h3 className="field-label !text-paper-text mt-6">流程說明</h3>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {form.processSteps.map((s, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="mt-2 w-6 shrink-0 text-center text-sm font-semibold text-brand-500">
-                    {i + 1}
-                  </span>
-                  <input
-                    className="field-input"
-                    value={s}
-                    onChange={(e) => updateStringItem("processSteps", i, e.target.value)}
-                  />
-                  <button
-                    onClick={() => removeStringItem("processSteps", i)}
-                    className="btn-danger px-2"
-                    title="刪除"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                <div
+                  key={i}
+                  className="rounded-lg border border-paper-border bg-paper-block/40 p-3"
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="mt-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-xs font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <input
+                        className="field-input font-medium"
+                        placeholder="階段名稱（如：網站素材）"
+                        value={s.title}
+                        onChange={(e) =>
+                          updateProcessStep(i, "title", e.target.value)
+                        }
+                      />
+                      <textarea
+                        className="field-input min-h-[60px] resize-y"
+                        placeholder="說明（可多行）"
+                        value={s.description}
+                        onChange={(e) =>
+                          updateProcessStep(i, "description", e.target.value)
+                        }
+                      />
+                      {s.links.map((l, li) => (
+                        <div key={li} className="flex gap-2">
+                          <input
+                            className="field-input sm:max-w-[190px]"
+                            placeholder="連結文字（如：雲端資料夾）"
+                            value={l.label}
+                            onChange={(e) =>
+                              updateProcessLink(i, li, "label", e.target.value)
+                            }
+                          />
+                          <input
+                            className="field-input"
+                            placeholder="https://… (可事後再貼)"
+                            value={l.url}
+                            onChange={(e) =>
+                              updateProcessLink(i, li, "url", e.target.value)
+                            }
+                          />
+                          <button
+                            onClick={() => removeProcessLink(i, li)}
+                            className="btn-danger px-2"
+                            title="刪除連結"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => addProcessLink(i)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
+                      >
+                        <LinkIcon size={13} /> 新增連結
+                      </button>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-center gap-0.5">
+                      <button
+                        onClick={() => moveProcessStep(i, -1)}
+                        disabled={i === 0}
+                        className="rounded p-0.5 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                        title="上移"
+                      >
+                        <ChevronUp size={16} />
+                      </button>
+                      <button
+                        onClick={() => moveProcessStep(i, 1)}
+                        disabled={i === form.processSteps.length - 1}
+                        className="rounded p-0.5 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                        title="下移"
+                      >
+                        <ChevronDown size={16} />
+                      </button>
+                      <button
+                        onClick={() => removeProcessStep(i)}
+                        className="rounded p-1 text-paper-muted hover:bg-red-50 hover:text-red-600"
+                        title="刪除步驟"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-            <button
-              onClick={() => addStringItem("processSteps")}
-              className="btn-ghost mt-2"
-            >
+            <button onClick={addProcessStep} className="btn-ghost mt-2">
               <Plus size={16} /> 新增流程
             </button>
           </section>
@@ -640,12 +839,10 @@ export default function AdminEditor({
                     className="field-input min-h-[42px] resize-y"
                     rows={1}
                     value={s}
-                    onChange={(e) =>
-                      updateStringItem("supplementaryNotes", i, e.target.value)
-                    }
+                    onChange={(e) => updateNote(i, e.target.value)}
                   />
                   <button
-                    onClick={() => removeStringItem("supplementaryNotes", i)}
+                    onClick={() => removeNote(i)}
                     className="btn-danger px-2"
                     title="刪除"
                   >
@@ -654,10 +851,7 @@ export default function AdminEditor({
                 </div>
               ))}
             </div>
-            <button
-              onClick={() => addStringItem("supplementaryNotes")}
-              className="btn-ghost mt-2"
-            >
+            <button onClick={addNote} className="btn-ghost mt-2">
               <Plus size={16} /> 新增補充說明
             </button>
           </section>

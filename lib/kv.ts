@@ -2,6 +2,7 @@ import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
 import type { Quote, QuoteInput, QuoteSummary } from "./types";
 import { itemsTotal } from "./format";
+import { normalizeProcessSteps, normalizeProjectBrief } from "./normalize";
 
 // ─────────────────────────────────────────────────────────────
 //  Vercel KV 資料存取層 (Data Access Layer)
@@ -24,6 +25,16 @@ const KV_ENABLED = Boolean(
 
 // ── 記憶體後援 (本機無 KV 時使用) ──
 const memStore = new Map<string, Quote>();
+
+/** 相容舊資料：把舊版 processSteps(string[]) 與缺少的 projectBrief 補正 */
+function migrateQuote(q: Quote | null): Quote | null {
+  if (!q) return null;
+  return {
+    ...q,
+    projectBrief: normalizeProjectBrief(q.projectBrief),
+    processSteps: normalizeProcessSteps(q.processSteps),
+  };
+}
 
 function toSummary(q: Quote): QuoteSummary {
   return {
@@ -60,9 +71,9 @@ export async function getQuote(id: string): Promise<Quote | null> {
   if (!id) return null;
   if (KV_ENABLED) {
     const quote = await kv.get<Quote>(QUOTE_KEY(id));
-    return quote ?? null;
+    return migrateQuote(quote ?? null);
   }
-  return memStore.get(id) ?? null;
+  return migrateQuote(memStore.get(id) ?? null);
 }
 
 /** 更新報價單 (保留原 id / createdAt) */

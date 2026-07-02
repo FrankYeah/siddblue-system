@@ -14,6 +14,8 @@ import {
   Eye,
   BadgeCheck,
   Loader2,
+  ClipboardList,
+  ExternalLink,
 } from "lucide-react";
 import { PaperPlane, SeagullFlock, CodeBraces } from "@/components/BrandDecor";
 import { itemsTotal, formatNT, formatCurrency } from "@/lib/format";
@@ -147,6 +149,49 @@ export default function QuoteView({ quote }: { quote: Quote }) {
             </div>
           )}
 
+          {/* 專案需求 */}
+          {(quote.projectBrief.serviceDescription ||
+            quote.projectBrief.siteStyle ||
+            quote.projectBrief.sitePages) && (
+            <section className="notion-block">
+              <h2 className="section-title mb-4">
+                <ClipboardList size={18} className="text-brand-500" /> 專案需求
+              </h2>
+              <div className="space-y-4">
+                {quote.projectBrief.serviceDescription && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-paper-muted">
+                      服務說明
+                    </div>
+                    <p className="whitespace-pre-line text-sm text-paper-text">
+                      {quote.projectBrief.serviceDescription}
+                    </p>
+                  </div>
+                )}
+                {quote.projectBrief.siteStyle && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-paper-muted">
+                      網站風格
+                    </div>
+                    <p className="whitespace-pre-line text-sm text-paper-text">
+                      {quote.projectBrief.siteStyle}
+                    </p>
+                  </div>
+                )}
+                {quote.projectBrief.sitePages && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-paper-muted">
+                      網站頁面
+                    </div>
+                    <p className="whitespace-pre-line rounded-lg bg-paper-block px-4 py-3 text-sm text-paper-text">
+                      {quote.projectBrief.sitePages}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* 規格明細 */}
           <section className="notion-block">
             <h2 className="section-title mb-4">
@@ -210,13 +255,49 @@ export default function QuoteView({ quote }: { quote: Quote }) {
               <h2 className="section-title mb-4">
                 <ListChecks size={18} className="text-brand-500" /> 交付流程
               </h2>
-              <ol className="space-y-3">
+              <ol className="space-y-4">
                 {quote.processSteps.map((s, i) => (
                   <li key={i} className="flex gap-3">
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-xs font-bold text-white">
                       {i + 1}
                     </span>
-                    <span className="pt-0.5 text-sm text-paper-text">{s}</span>
+                    <div className="min-w-0 flex-1">
+                      {s.title && (
+                        <div className="font-medium text-paper-text">
+                          {s.title}
+                        </div>
+                      )}
+                      {s.description && (
+                        <p className="mt-0.5 whitespace-pre-line text-sm text-paper-muted">
+                          {s.description}
+                        </p>
+                      )}
+                      {s.links.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {s.links.map((l, li) =>
+                            l.url ? (
+                              <a
+                                key={li}
+                                href={l.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
+                              >
+                                <ExternalLink size={12} />
+                                {l.label || "連結"}
+                              </a>
+                            ) : (
+                              <span
+                                key={li}
+                                className="inline-flex items-center gap-1 rounded-md border border-dashed border-paper-border px-2.5 py-1 text-xs text-paper-muted"
+                              >
+                                {l.label || "連結"}（待補）
+                              </span>
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -361,6 +442,40 @@ function PrintSheet({
         </tbody>
       </table>
 
+      {/* 專案需求 */}
+      {(quote.projectBrief.serviceDescription ||
+        quote.projectBrief.siteStyle ||
+        quote.projectBrief.sitePages) && (
+        <table className="excel-table avoid-break mb-3">
+          <tbody>
+            {quote.projectBrief.serviceDescription && (
+              <tr>
+                <th className="w-24">服務說明</th>
+                <td colSpan={3} style={{ whiteSpace: "pre-line" }}>
+                  {quote.projectBrief.serviceDescription}
+                </td>
+              </tr>
+            )}
+            {quote.projectBrief.siteStyle && (
+              <tr>
+                <th>網站風格</th>
+                <td colSpan={3} style={{ whiteSpace: "pre-line" }}>
+                  {quote.projectBrief.siteStyle}
+                </td>
+              </tr>
+            )}
+            {quote.projectBrief.sitePages && (
+              <tr>
+                <th>網站頁面</th>
+                <td colSpan={3} style={{ whiteSpace: "pre-line" }}>
+                  {quote.projectBrief.sitePages}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
       {/* 明細方格表 */}
       <table className="excel-table avoid-break">
         <thead>
@@ -446,7 +561,23 @@ function PrintSheet({
                 <td>
                   <ol style={{ margin: 0, paddingLeft: "1.2em" }}>
                     {quote.processSteps.map((s, i) => (
-                      <li key={i}>{s}</li>
+                      <li key={i} style={{ marginBottom: 2 }}>
+                        {s.title && (
+                          <span style={{ fontWeight: 700 }}>{s.title}</span>
+                        )}
+                        {s.title && s.description ? "：" : ""}
+                        <span style={{ whiteSpace: "pre-line" }}>
+                          {s.description}
+                        </span>
+                        {s.links
+                          .filter((l) => l.url)
+                          .map((l, li) => (
+                            <span key={li}>
+                              {" "}
+                              [{l.label || "連結"}：{l.url}]
+                            </span>
+                          ))}
+                      </li>
                     ))}
                   </ol>
                 </td>

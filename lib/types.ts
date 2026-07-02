@@ -14,6 +14,34 @@ export interface QuoteItem {
   amount: number;
 }
 
+/** 流程步驟中的連結 (雲端資料夾、設計稿參考等) */
+export interface ProcessLink {
+  /** 顯示文字，如「雲端資料夾」 */
+  label: string;
+  /** 連結網址 (可留空，事後再貼) */
+  url: string;
+}
+
+/** 流程步驟 (階段標題 + 說明 + 可選連結) */
+export interface ProcessStep {
+  /** 階段名稱，如「網站素材」 */
+  title: string;
+  /** 說明 (支援多行) */
+  description: string;
+  /** 相關連結 (雲端資料夾、設計稿…) */
+  links: ProcessLink[];
+}
+
+/** 專案需求整理 (初次討論所聽到的需求與網站設定) */
+export interface ProjectBrief {
+  /** 服務說明 (製作網站目的、目標、導流方式…) */
+  serviceDescription: string;
+  /** 網站風格 (如：未定 / 白、木、金) */
+  siteStyle: string;
+  /** 網站頁面 (客製化網站的頁面結構，支援多行) */
+  sitePages: string;
+}
+
 /** 維護費估價定義 (大 / 小 / 微調整) */
 export interface MaintenanceRule {
   /** 級距名稱，如「大調整」 */
@@ -36,12 +64,14 @@ export interface Quote {
   validPeriod: string;
   /** 報價項目陣列 */
   items: QuoteItem[];
+  /** 專案需求整理 (初次討論的需求與網站設定) */
+  projectBrief: ProjectBrief;
   /** 總價與款項特殊備註 (老朋友折讓、未稅/含稅、頭期款比例等) */
   summaryText: string;
   /** 付款資訊 (預設帶入，可修改) */
   paymentInfo: string;
-  /** 流程說明 (可動態增刪) */
-  processSteps: string[];
+  /** 流程說明 (階段 + 說明 + 連結，可動態增刪) */
+  processSteps: ProcessStep[];
   /** 維護費估價定義 */
   maintenanceRules: MaintenanceRule[];
   /** 補充說明 (可動態增刪) */

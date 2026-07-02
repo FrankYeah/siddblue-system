@@ -28,6 +28,7 @@ export function quoteToInput(q: Quote): QuoteInput {
     quoteDate: q.quoteDate,
     validPeriod: q.validPeriod,
     items: q.items,
+    projectBrief: q.projectBrief,
     summaryText: q.summaryText,
     paymentInfo: q.paymentInfo,
     processSteps: q.processSteps,
