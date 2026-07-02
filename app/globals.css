@@ -50,6 +50,76 @@ body {
   }
 }
 
+/* ───────────────────────────────────────────────────────────
+   知識庫 Markdown 呈現 (對外分享頁 / 唯讀)
+   由 lib/markdown.ts 產出安全 HTML，這裡負責排版樣式
+   ─────────────────────────────────────────────────────────── */
+.md-content {
+  @apply text-[15px] leading-7 text-paper-text;
+}
+.md-content > :first-child {
+  margin-top: 0;
+}
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  @apply mb-3 mt-7 font-semibold text-paper-text;
+}
+.md-content h1 {
+  @apply border-b border-paper-border pb-2 text-2xl;
+}
+.md-content h2 {
+  @apply text-xl;
+}
+.md-content h3 {
+  @apply text-lg;
+}
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  @apply text-base;
+}
+.md-content p {
+  @apply my-4;
+}
+.md-content ul,
+.md-content ol {
+  @apply my-4 space-y-1.5 pl-6;
+}
+.md-content ul {
+  @apply list-disc;
+}
+.md-content ol {
+  @apply list-decimal;
+}
+.md-content li {
+  @apply pl-1;
+}
+.md-content a {
+  @apply font-medium text-brand-600 underline decoration-brand-300 underline-offset-2 hover:text-brand-700;
+}
+.md-content strong {
+  @apply font-semibold text-paper-text;
+}
+.md-content blockquote {
+  @apply my-4 border-l-4 border-brand-200 bg-paper-block/60 py-2 pl-4 pr-3 text-paper-muted;
+}
+.md-content hr {
+  @apply my-7 border-t border-paper-border;
+}
+.md-content code {
+  @apply rounded bg-paper-block px-1.5 py-0.5 font-mono text-[0.85em] text-brand-700;
+}
+.md-content pre {
+  @apply my-4 overflow-x-auto rounded-lg bg-paper-text/95 p-4;
+}
+.md-content pre code {
+  @apply bg-transparent p-0 text-[0.85em] text-white/90;
+}
+
 /* 隱藏 number input 的上下箭頭，維持排版乾淨 */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {

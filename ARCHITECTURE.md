@@ -3,13 +3,14 @@
 > 西打藍好內容有限公司 — 報價單與規格生成工具
 > 最後更新：2026-07-02
 
-本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由三個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
+本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由四個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
 
 | 模組 | 用途 | 主要頁面 |
 | --- | --- | --- |
 | 💰 **報價單** | 建立/編輯報價單、產生對外連結、客戶線上確認、匯出 PDF/Excel/CSV | `/admin`（編輯）、`/quote/[id]`（對外） |
 | 📝 **靈感看板** | 四欄看板（靈感池 / 長文電子報 / 短影片 / 已封存），拖曳切換狀態 | `/admin`（頁籤） |
 | ✅ **待辦清單** | 三區（立即處理 / 稍後再說 / 長期要做的事）極簡待辦 | `/admin`（頁籤） |
+| 📚 **知識庫** | 取代 Apple Notes：創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄；支援 Markdown、標籤、諮詢模板，可對外產生唯讀分享連結 | `/admin`（頁籤）、`/shared/note/[token]`（對外） |
 
 ---
 
@@ -43,16 +44,21 @@ siddblue-system/
 │   ├── globals.css               # Tailwind + 元件樣式 + 列印 Excel 樣式 + 手機觸控優化
 │   │
 │   ├── admin/                    # 後台（創作者工作區）
-│   │   ├── page.tsx              # Server Component：驗證 + 讀 KV（報價/靈感/待辦）
+│   │   ├── page.tsx              # Server Component：驗證 + 讀 KV（報價/靈感/待辦/筆記）
 │   │   ├── AdminLogin.tsx        # 密碼登入（未通過驗證時顯示）
 │   │   ├── AdminWorkspace.tsx    # 客戶端頁籤外殼（桌機頂部頁籤 / 手機底部導覽）
 │   │   ├── AdminEditor.tsx       # 💰 報價單編輯器（含狀態切換、營業稅切換）
 │   │   ├── InspirationBoard.tsx  # 📝 靈感看板（@hello-pangea/dnd 拖曳）
-│   │   └── TodoBoard.tsx         # ✅ 待辦清單
+│   │   ├── TodoBoard.tsx         # ✅ 待辦清單
+│   │   └── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
 │   │
 │   ├── quote/[id]/               # 對外報價/規格確認頁
 │   │   ├── page.tsx              # Server Component：依 id 讀 KV
 │   │   ├── QuoteView.tsx         # 品牌 Notion 版 + 列印 Excel 版（PrintSheet）
+│   │   └── not-found.tsx         # 404
+│   │
+│   ├── shared/note/[token]/      # 對外唯讀筆記分享頁
+│   │   ├── page.tsx              # Server Component：依 shareToken 讀 KV，未分享→404
 │   │   └── not-found.tsx         # 404
 │   │
 │   └── api/                      # 所有 API 路由（Route Handlers）
@@ -61,6 +67,8 @@ siddblue-system/
 │       ├── quotes/[id]/accept/route.ts   # POST 客戶線上確認（公開）
 │       ├── inspirations/route.ts         # GET / PUT 靈感看板（需登入）
 │       ├── todos/route.ts                # GET / PUT 待辦清單（需登入）
+│       ├── notes/route.ts                # GET 列表 / POST 建立筆記（需登入）
+│       ├── notes/[id]/route.ts           # GET / PUT / DELETE 單筆筆記（需登入）
 │       ├── admin/login/route.ts          # POST 登入 / DELETE 登出
 │       └── test-db/route.ts              # GET KV 連線健檢
 │
@@ -72,6 +80,8 @@ siddblue-system/
 │   ├── defaults.ts               # 硬編碼企業預設值（抬頭、付款、預設項目/流程…）
 │   ├── kv.ts                     # 報價單 KV 存取層（含遷移、狀態、摘要）
 │   ├── workspace-kv.ts           # 靈感看板 / 待辦清單 KV 存取層
+│   ├── notes-kv.ts               # 📚 知識庫 KV 存取層（CRUD + shareToken 反查）
+│   ├── markdown.ts               # 安全的白名單 Markdown → HTML（對外分享頁用）
 │   ├── format.ts                 # 金額格式化、營業稅計算（client+server 共用）
 │   ├── normalize.ts              # 輸入清理/補齊 + 舊資料相容
 │   ├── csv.ts                    # CSV 匯出（前端）
@@ -88,7 +98,7 @@ siddblue-system/
 
 ### 渲染與資料流模型
 
-- **Server Components**（`app/**/page.tsx`）在伺服器端直接呼叫 `lib/kv.ts` / `lib/workspace-kv.ts` 讀取資料，並把資料當 props 傳給 Client Component。所有讀取一律呼叫 `unstable_noStore()`，避免 Next.js 快取造成資料過期。
+- **Server Components**（`app/**/page.tsx`）在伺服器端直接呼叫 `lib/kv.ts` / `lib/workspace-kv.ts` / `lib/notes-kv.ts` 讀取資料，並把資料當 props 傳給 Client Component。所有讀取一律呼叫 `unstable_noStore()`，避免 Next.js 快取造成資料過期。
 - **Client Components**（編輯器、看板、待辦、對外頁）以 `fetch` 呼叫 `/api/*` 進行寫入。
 - **樂觀更新 (Optimistic UI)**：靈感看板與待辦清單在本機先更新畫面，再 `PUT` 整個 board 回 KV，寫入後**不重新讀取**（故 Upstash 讀取複本延遲對使用者無影響）。
 - **後台頁籤**：`AdminWorkspace` 一次掛載三個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。
@@ -105,6 +115,9 @@ Vercel KV（Upstash Redis）中的所有 key：
 | `quotes:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/kv.ts` |
 | `workspace:inspirations` | JSON (string) | 整個靈感看板 `InspirationBoard`（單一 blob） | `lib/workspace-kv.ts` |
 | `workspace:todos` | JSON (string) | 整個待辦清單 `TodoBoard`（單一 blob） | `lib/workspace-kv.ts` |
+| `note:{id}` | JSON (string) | 單筆知識庫筆記 `Note` | `lib/notes-kv.ts` |
+| `notes:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/notes-kv.ts` |
+| `note:share:{token}` | string | `shareToken → id` 反查對應，供對外分享頁 O(1) 查詢；刪除筆記時一併移除 | `lib/notes-kv.ts` |
 | `test:siddblue` | JSON (string) | 連線健檢暫存資料，讀回後即刪除（除非 `?keep=1`） | `app/api/test-db/route.ts` |
 
 > 型別的唯一真實來源是 `lib/types.ts`。以下定義與該檔一致。
@@ -230,6 +243,29 @@ type TodoBoard = Record<TodoBucket, Todo[]>;
 - 極簡設計：刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）。
 - 讀取時經 `sanitizeTodoBoard()` 清理（同上原則）。
 
+### 3.4 Note（知識庫筆記）
+
+```ts
+type NoteType = "general" | "consulting";   // 一般筆記 / 諮詢紀錄
+
+interface Note {
+  id: string;          // nanoid(10)
+  title: string;       // 上限 300 字
+  content: string;     // Markdown，上限 100,000 字
+  tags: string[];      // 每個標籤上限 40 字、去重、至多 30 個
+  type: NoteType;
+  isShared: boolean;   // 是否對外公開
+  shareToken: string;  // nanoid(10)，建立時產生、終生不變（分享連結用，避免以 id 被猜到）
+  createdAt: string;   // ISO
+  updatedAt: string;   // ISO
+}
+```
+
+- 與報價單相同採**逐筆 CRUD + 索引**：`note:{id}` 存單筆、`notes:index`（Sorted Set）排序、`note:share:{token}` 供對外頁反查。
+- **對外分享**：`/shared/note/[token]` Server Component 以 `getNoteByShareToken()` 反查；找不到或 `isShared === false` 一律 `notFound()`（不洩漏是否存在）。內容經 `lib/markdown.ts` 轉為**白名單 HTML** 後唯讀呈現。
+- **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。
+- 讀取時經 `migrateNote()` 清理/補齊（缺 `shareToken`/`type` 補預設、標籤去重、超長截斷）。
+
 ---
 
 ## 4. API Endpoints
@@ -249,11 +285,16 @@ type TodoBoard = Record<TodoBucket, Todo[]>;
 | `PUT /api/inspirations` | 覆寫整個靈感看板，body `{ board }` | 需登入 | `saveInspirations()` |
 | `GET /api/todos` | 讀取整個待辦清單 `{ board }` | 需登入 | `getTodos()` |
 | `PUT /api/todos` | 覆寫整個待辦清單，body `{ board }` | 需登入 | `saveTodos()` |
+| `GET /api/notes` | 列出所有筆記摘要（新→舊，不含 content） | 需登入 | `listNotes()` |
+| `POST /api/notes` | 建立新筆記（自動產生 `shareToken`） | 需登入 | `createNote()` |
+| `GET /api/notes/[id]` | 讀取單筆筆記（後台用） | 需登入 | `getNote()` |
+| `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
+| `DELETE /api/notes/[id]` | 刪除筆記（同時移出 index 與 share 對應） | 需登入 | `deleteNote()` |
 | `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie | 公開 | `verifyPassword()` + `expectedToken()` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
 | `GET /api/test-db` | KV 連線健檢（寫→讀→比對→刪）；`?keep=1` 保留 | 公開 | 直接呼叫 `kv` |
 
-**設計慣例**：看板/清單採「整包覆寫（whole-board PUT）」而非逐項增刪，讓拖曳重排成為原子操作、前端邏輯單純；報價單則採逐筆 CRUD + 索引 Sorted Set。
+**設計慣例**：看板/清單採「整包覆寫（whole-board PUT）」而非逐項增刪，讓拖曳重排成為原子操作、前端邏輯單純；報價單與知識庫則採逐筆 CRUD + 索引 Sorted Set（單筆內容較大、需獨立分享連結）。
 
 ---
 

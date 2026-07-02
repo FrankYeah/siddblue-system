@@ -7,29 +7,34 @@ import { COMPANY_NAME } from "@/lib/defaults";
 import AdminEditor from "./AdminEditor";
 import InspirationBoard from "./InspirationBoard";
 import TodoBoard from "./TodoBoard";
+import NotesBoard from "./NotesBoard";
 import type {
   InspirationBoard as InspirationBoardData,
+  Note,
   QuoteSummary,
   TodoBoard as TodoBoardData,
 } from "@/lib/types";
 
-type Tab = "quote" | "inspiration" | "todo";
+type Tab = "quote" | "inspiration" | "todo" | "knowledge";
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "quote", icon: "💰", label: "報價系統" },
   { key: "inspiration", icon: "📝", label: "寫作靈感" },
   { key: "todo", icon: "✅", label: "待辦清單" },
+  { key: "knowledge", icon: "📚", label: "知識庫" },
 ];
 
 export default function AdminWorkspace({
   initialQuotes,
   initialInspirations,
   initialTodos,
+  initialNotes,
   protectedMode,
 }: {
   initialQuotes: QuoteSummary[];
   initialInspirations: InspirationBoardData;
   initialTodos: TodoBoardData;
+  initialNotes: Note[];
   protectedMode: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("quote");
@@ -97,11 +102,14 @@ export default function AdminWorkspace({
         <div className={tab === "todo" ? "animate-fade-in" : "hidden"}>
           <TodoBoard initialBoard={initialTodos} />
         </div>
+        <div className={tab === "knowledge" ? "animate-fade-in" : "hidden"}>
+          <NotesBoard initialNotes={initialNotes} />
+        </div>
       </main>
 
       {/* 手機版底部導覽 (Bottom Navigation) */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
         aria-label="主要功能"
       >
         {TABS.map((t) => (

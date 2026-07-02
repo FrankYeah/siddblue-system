@@ -156,3 +156,54 @@ export interface Todo {
 
 /** 待辦清單：依分區分組 */
 export type TodoBoard = Record<TodoBucket, Todo[]>;
+
+// ═════════════════════════════════════════════════════════════
+//  知識庫 (Knowledge Base) — 取代 Apple Notes
+//  個人創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄
+// ═════════════════════════════════════════════════════════════
+
+/** 筆記類型 */
+export type NoteType =
+  | "general" // 一般筆記
+  | "consulting"; // 諮詢紀錄
+
+/** 知識庫筆記 */
+export interface Note {
+  /** 唯一識別碼 (nanoid 10) */
+  id: string;
+  /** 標題 */
+  title: string;
+  /** 內容 (支援 Markdown) */
+  content: string;
+  /** 標籤 (如「一次性諮詢」「創業想法」) */
+  tags: string[];
+  /** 類型：一般筆記 / 諮詢紀錄 */
+  type: NoteType;
+  /** 是否對外公開共享 */
+  isShared: boolean;
+  /** 對外連結專屬 token (避免以 id 被猜到)，建立時產生、終生不變 */
+  shareToken: string;
+  /** 建立時間 (ISO 字串) */
+  createdAt: string;
+  /** 最後更新時間 (ISO 字串) */
+  updatedAt: string;
+}
+
+/** 後台列表使用的精簡摘要 (不含 content) */
+export interface NoteSummary {
+  id: string;
+  title: string;
+  tags: string[];
+  type: NoteType;
+  isShared: boolean;
+  updatedAt: string;
+}
+
+/** 表單輸入 (不含系統欄位 id / shareToken / createdAt / updatedAt) */
+export interface NoteInput {
+  title: string;
+  content: string;
+  tags: string[];
+  type: NoteType;
+  isShared: boolean;
+}
