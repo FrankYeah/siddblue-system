@@ -1,5 +1,6 @@
 import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
+import { unstable_noStore as noStore } from "next/cache";
 import type { Quote, QuoteInput, QuoteSummary } from "./types";
 import { itemsTotal } from "./format";
 import { normalizeProcessSteps, normalizeProjectBrief } from "./normalize";
@@ -68,6 +69,8 @@ export async function createQuote(input: QuoteInput): Promise<Quote> {
 
 /** 讀取單筆報價單 */
 export async function getQuote(id: string): Promise<Quote | null> {
+  // 確保 Server Component 每次都讀最新資料，不被 Next.js data cache 快取住
+  noStore();
   if (!id) return null;
   if (KV_ENABLED) {
     const quote = await kv.get<Quote>(QUOTE_KEY(id));
@@ -144,6 +147,7 @@ export async function deleteQuote(id: string): Promise<boolean> {
 
 /** 列出所有報價單摘要 (新 → 舊) */
 export async function listQuotes(): Promise<QuoteSummary[]> {
+  noStore();
   if (KV_ENABLED) {
     const ids = await kv.zrange<string[]>(INDEX_KEY, 0, -1, { rev: true });
     if (!ids || ids.length === 0) return [];
