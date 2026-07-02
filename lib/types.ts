@@ -146,7 +146,7 @@ export interface Inspiration {
 export type InspirationBoard = Record<InspirationStatus, Inspiration[]>;
 
 /** 待辦清單分區 */
-export type TodoBucket = "now" | "later"; // 🔥 立即處理 / ⏳ 稍後再說
+export type TodoBucket = "now" | "later" | "longterm"; // 🔥 立即處理 / ⏳ 稍後再說 / 🎯 長期要做的事
 
 /** 待辦任務 (極簡：僅純文字標題) */
 export interface Todo {

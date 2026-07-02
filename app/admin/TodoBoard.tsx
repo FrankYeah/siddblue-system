@@ -13,6 +13,7 @@ import type { Todo, TodoBoard as BoardData, TodoBucket } from "@/lib/types";
 const BUCKETS: { key: TodoBucket; title: string; accent: string }[] = [
   { key: "now", title: "🔥 立即處理", accent: "border-t-red-400" },
   { key: "later", title: "⏳ 稍後再說", accent: "border-t-brand-400" },
+  { key: "longterm", title: "🎯 長期要做的事", accent: "border-t-emerald-400" },
 ];
 
 function newId() {
@@ -31,6 +32,7 @@ export default function TodoBoard({
   const [drafts, setDrafts] = useState<Record<TodoBucket, string>>({
     now: "",
     later: "",
+    longterm: "",
   });
   const [editing, setEditing] = useState<{ bucket: TodoBucket; id: string } | null>(
     null,
@@ -115,7 +117,11 @@ export default function TodoBoard({
     }
     const from = source.droppableId as TodoBucket;
     const to = destination.droppableId as TodoBucket;
-    const next: BoardData = { now: [...board.now], later: [...board.later] };
+    const next: BoardData = {
+      now: [...board.now],
+      later: [...board.later],
+      longterm: [...board.longterm],
+    };
     const [moved] = next[from].splice(source.index, 1);
     if (!moved) return;
     next[to].splice(destination.index, 0, moved);
@@ -123,7 +129,7 @@ export default function TodoBoard({
   }
 
   const grid = (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {BUCKETS.map((b) => (
         <div
           key={b.key}
@@ -175,7 +181,7 @@ export default function TodoBoard({
   );
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-6">
+    <div className="mx-auto max-w-6xl px-6 py-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-paper-text">✅ 待辦清單</h2>

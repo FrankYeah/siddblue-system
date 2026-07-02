@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 💰 **報價單** | 建立/編輯報價單、產生對外連結、客戶線上確認、匯出 PDF/Excel/CSV | `/admin`（編輯）、`/quote/[id]`（對外） |
 | 📝 **靈感看板** | 四欄看板（靈感池 / 長文電子報 / 短影片 / 已封存），拖曳切換狀態 | `/admin`（頁籤） |
-| ✅ **待辦清單** | 兩區（立即處理 / 稍後再說）極簡待辦 | `/admin`（頁籤） |
+| ✅ **待辦清單** | 三區（立即處理 / 稍後再說 / 長期要做的事）極簡待辦 | `/admin`（頁籤） |
 
 ---
 
@@ -214,7 +214,8 @@ type InspirationBoard = Record<InspirationStatus, Inspiration[]>;
 ### 3.3 TodoBoard（待辦清單）
 
 ```ts
-type TodoBucket = "now" | "later";   // 🔥 立即處理 / ⏳ 稍後再說
+type TodoBucket = "now" | "later" | "longterm";
+// 🔥 立即處理 / ⏳ 稍後再說 / 🎯 長期要做的事
 
 interface Todo {
   id: string;
@@ -222,7 +223,8 @@ interface Todo {
 }
 
 type TodoBoard = Record<TodoBucket, Todo[]>;
-// = { now: [...], later: [...] }
+// = { now: [...], later: [...], longterm: [...] }
+// 舊資料只有 now/later，讀取時 sanitizeTodoBoard() 會以 emptyTodoBoard() 為底補上 longterm: []
 ```
 
 - 極簡設計：刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）。
