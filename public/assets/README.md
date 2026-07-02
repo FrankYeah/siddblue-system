@@ -1,19 +1,20 @@
 # 公司資產 (Public Assets)
 
-## 電子大小章 — `company-stamps.png`
+## 電子大小章 — `stamp.jpg`
 
-請將公司大小章的圖檔命名為 **`company-stamps.png`**，放置於此資料夾：
+公司大小章的圖檔為 **`stamp.jpg`**，放置於此資料夾：
 
 ```
-public/assets/company-stamps.png
+public/assets/stamp.jpg
 ```
 
 系統會在「正式報價單」列印 / PDF 匯出時，於「廠商用印」欄位自動載入此圖，
 產出的檔案將直接帶有合規的公司大小章。
 
 ### 建議規格
-- 格式：PNG（去背，透明底最佳）
+- 格式：目前為 JPG（白底）。若日後想要去背效果，可改用透明底 PNG，
+  並同步更新 [QuoteView.tsx](../../app/quote/%5Bid%5D/QuoteView.tsx) 內的 `src` 路徑。
 - 尺寸：寬約 400–600px，比例接近方形或橫向
 - 內容：公司大章 + 負責人小章
 
-> 若尚未放置圖檔，列印時該欄位會顯示虛線「用印處」佔位框，不會出現破圖。
+> 若圖檔不存在，列印時該欄位會顯示虛線「用印處」佔位框，不會出現破圖。

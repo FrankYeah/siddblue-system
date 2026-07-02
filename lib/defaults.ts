@@ -115,7 +115,11 @@ export const DEFAULT_MAINTENANCE_RULES: MaintenanceRule[] = [
   },
 ];
 
-/** 預設流程說明 (階段 + 說明 + 連結；連結預留位置供貼上雲端資料夾 / 設計稿) */
+/**
+ * 預設流程說明 (階段 + 說明 + 連結)。
+ * 「第一版風格確認」預填兩個通用的設計稿呈現參考連結 (可跨案沿用)；
+ * 其餘客戶專屬連結 (雲端資料夾、客戶文件等) 於每案編輯時再自行貼上。
+ */
 export const DEFAULT_PROCESS_STEPS: ProcessStep[] = [
   {
     title: "第一次會議討論",
@@ -127,7 +131,7 @@ export const DEFAULT_PROCESS_STEPS: ProcessStep[] = [
     title: "網站素材",
     description:
       "請協助整理網站可以使用的「圖像素材」、「影片素材」，放置於雲端資料夾。",
-    links: [{ label: "雲端資料夾", url: "" }],
+    links: [],
   },
   {
     title: "討論風格確認",
@@ -143,20 +147,26 @@ export const DEFAULT_PROCESS_STEPS: ProcessStep[] = [
   {
     title: "準備網站資料",
     description: "請將資料放入「雲端資料夾－網站頁面文案」。",
-    links: [{ label: "雲端資料夾－網站頁面文案", url: "" }],
+    links: [],
   },
   {
     title: "第一版風格確認",
     description: "設計師先製作首頁版型，和你們討論調整，呈現參考如下：",
     links: [
-      { label: "設計稿呈現 1", url: "" },
-      { label: "設計稿呈現 2", url: "" },
+      {
+        label: "設計稿呈現參考 1",
+        url: "https://xd.adobe.com/view/bfdd7f6d-8276-413d-a0e0-2ee7133241e9-ea8e/screen/43dbefd8-42cf-4bfd-93fe-6f43f619ac1b?fullscreen",
+      },
+      {
+        label: "設計稿呈現參考 2",
+        url: "https://www.figma.com/file/OcDLTFl2iENzp67GxHC5xP/謎卡個人網站?node-id=42%3A2&t=OPHRcZN5SBMW9AD2-1",
+      },
     ],
   },
   {
     title: "後續製作",
     description:
-      "首頁確認後，設計師往下製作其他頁，逐一和你們確認。設計稿都確認後，輪到網站工程師製作，並逐一交付測試，直至結案。",
+      "1. 首頁風格確認\n2. 所有頁面風格確認\n3. 工程製作\n4. 交付網站連結\n5. 細修文案及排版\n6. 結案",
     links: [],
   },
 ];

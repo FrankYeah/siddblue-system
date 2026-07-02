@@ -607,10 +607,10 @@ function PrintSheet({
               廠商用印
             </th>
             <td style={{ position: "relative", height: 120 }}>
-              {/* 電子大小章：請將圖檔放置於 /public/assets/company-stamps.png */}
+              {/* 電子大小章：圖檔放置於 /public/assets/stamp.jpg */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/assets/company-stamps.png"
+                src="/assets/stamp.jpg"
                 alt="公司大小章"
                 onError={(e) => {
                   // 圖檔尚未放置時，隱藏破圖並顯示提示邊框
