@@ -14,7 +14,7 @@
     "check": "run-s lint typecheck"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.92",
+    "@ai-sdk/openai": "^3.0.80",
     "@hello-pangea/dnd": "^18.0.1",
     "@vercel/kv": "^2.0.0",
     "ai": "^6.0.218",

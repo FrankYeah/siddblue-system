@@ -18,7 +18,7 @@
 | `/api/inspirations` | `GET` 讀取靈感看板 / `PUT` 儲存整個看板（需登入） |
 | `/api/todos` | `GET` 讀取待辦清單 / `PUT` 儲存整個清單（需登入） |
 | `/api/notes` `(/[id])` | 📚 知識庫筆記 CRUD（需登入）；`/shared/note/[token]` 為對外唯讀分享頁 |
-| `/api/matrix` | `POST` ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入 + `ANTHROPIC_API_KEY`） |
+| `/api/matrix` | `POST` ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入 + `OPENAI_API_KEY`） |
 | `/api/admin/login` | `POST` 登入 / `DELETE` 登出 |
 | `/api/test-db` | `GET` Vercel KV 連線健檢（寫入→讀回→比對；`?keep=1` 保留） |
 
@@ -35,11 +35,11 @@
 
 ### ✨ 內容矩陣引擎 (Content Matrix Engine)
 在「📝 寫作靈感 → 長文電子報」欄的卡片 Modal 中，按 **「✨ 矩陣生成：轉短影音」**：
-- 後端 `/api/matrix` 以 **Vercel AI SDK（`ai` + `@ai-sdk/anthropic`，模型 `claude-opus-4-8`）**
+- 後端 `/api/matrix` 以 **Vercel AI SDK（`ai` + `@ai-sdk/openai`，模型 `gpt-4o`）**
   扮演資深內容總監，把長文萃取成 300 字內的短影音腳本
   （黃金前 3 秒 Hook → 核心邏輯推演 → 強而有力 CTA）。
 - 生成結果自動建立成新卡片、放入「🎬 短影片」欄並即時同步 KV。
-- 需設定環境變數 `ANTHROPIC_API_KEY`（見 `.env.local.example`）；
+- 需設定環境變數 `OPENAI_API_KEY`（見 `.env.local.example`）；
   未設定時按鈕會回覆明確錯誤提示，其餘功能不受影響。
 
 ### 亮點
@@ -111,7 +111,7 @@ ADMIN_PASSWORD="你的後台密碼"
 NEXT_PUBLIC_SITE_URL="https://your-project.vercel.app"
 
 # ✨ 內容矩陣引擎（選用；未設定則僅該功能停用）
-ANTHROPIC_API_KEY="sk-ant-..."
+OPENAI_API_KEY="sk-..."
 ```
 
 3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD`）。

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { openai } from "@ai-sdk/openai";
 import { isAuthenticated } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ export const maxDuration = 60;
 // ─────────────────────────────────────────────────────────────
 //  內容矩陣引擎 (Content Matrix Engine)
 //  長文（電子報 / 商業分析 / 顧問紀錄）→ 300 字內短影音腳本
-//  模型：claude-opus-4-8（@ai-sdk/anthropic 會自動讀 ANTHROPIC_API_KEY）
+//  模型：gpt-4o（@ai-sdk/openai 會自動讀 OPENAI_API_KEY）
 // ─────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `你是「西打藍好內容有限公司」的資深內容總監，擅長將深度的商業模式分析、長篇書籍架構或顧問輔導紀錄，萃取成高轉化率的短影音腳本。
@@ -35,9 +35,9 @@ export async function POST(req: NextRequest) {
   if (!isAuthenticated()) {
     return NextResponse.json({ error: "未授權" }, { status: 401 });
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
-      { error: "尚未設定 ANTHROPIC_API_KEY，請於環境變數加入後重新部署" },
+      { error: "尚未設定 OPENAI_API_KEY，請於環境變數加入後重新部署" },
       { status: 503 },
     );
   }
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { text } = await generateText({
-      model: anthropic("claude-opus-4-8"),
+      model: openai("gpt-4o"),
       system: SYSTEM_PROMPT,
       // 內容超長時截斷（20000 字已遠超電子報長度，避免異常輸入撐爆請求）
       prompt: `標題：${title || "（未命名）"}\n\n【原始長文內容】\n${content.slice(0, 20000)}`,

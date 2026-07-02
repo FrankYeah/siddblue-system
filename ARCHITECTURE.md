@@ -24,7 +24,7 @@
 | 樣式 | **Tailwind CSS** | `^3.4.13` | 品牌深藍漸層、Notion 風格；`@media print` 切換 Excel 排版 |
 | 資料庫 | **@vercel/kv** | `^2.0.0` | 底層為 Upstash Redis（走 HTTP REST） |
 | 拖曳 | **@hello-pangea/dnd** | `^18.0.1` | `react-beautiful-dnd` 的 StrictMode-safe fork，用於靈感看板 |
-| AI | **ai (Vercel AI SDK)** + **@ai-sdk/anthropic** | `^6.0` / `^3.0` | ✨ 內容矩陣引擎（`/api/matrix`，模型 `claude-opus-4-8`）；需 `ANTHROPIC_API_KEY` |
+| AI | **ai (Vercel AI SDK)** + **@ai-sdk/openai** | `^6.0` / `^3.0` | ✨ 內容矩陣引擎（`/api/matrix`，模型 `gpt-4o`）；需 `OPENAI_API_KEY` |
 | 圖示 | **lucide-react** | `^0.454.0` | |
 | ID 產生 | **nanoid** | `^5.0.7` | 報價單 `nanoid(10)`、卡片/待辦 fallback id |
 | 建置工具 | postcss `^8.4` / autoprefixer `^10.4` / eslint `8.57` + `eslint-config-next` / prettier `^3.9` / npm-run-all | | `npm run check` = lint + typecheck |
@@ -295,7 +295,7 @@ interface Note {
 | `GET /api/notes/[id]` | 讀取單筆筆記（後台用） | 需登入 | `getNote()` |
 | `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
 | `DELETE /api/notes/[id]` | 刪除筆記（同時移出 index 與 share 對應） | 需登入 | `deleteNote()` |
-| `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `ANTHROPIC_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/anthropic，`claude-opus-4-8`） |
+| `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `OPENAI_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/openai，`gpt-4o`） |
 | `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie | 公開 | `verifyPassword()` + `expectedToken()` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
 | `GET /api/test-db` | KV 連線健檢（寫→讀→比對→刪）；`?keep=1` 保留 | 公開 | 直接呼叫 `kv` |
@@ -393,7 +393,7 @@ function computeTotals(items: QuoteItem[], taxInclusive: boolean): QuoteTotals;
 | `KV_URL` | Redis 連線字串（KV 整合附帶） | 選填 |
 | `ADMIN_PASSWORD` | 後台密碼；未設定則後台開放 | 建議設定 |
 | `NEXT_PUBLIC_SITE_URL` | 產生對外連結的基底網址 | 選填 |
-| `ANTHROPIC_API_KEY` | ✨ 內容矩陣引擎（`/api/matrix`）呼叫 Claude 所需；未設定時該功能回 503、其餘功能不受影響 | 使用矩陣生成時必填 |
+| `OPENAI_API_KEY` | ✨ 內容矩陣引擎（`/api/matrix`）呼叫 gpt-4o 所需；未設定時該功能回 503、其餘功能不受影響 | 使用矩陣生成時必填 |
 
 ---
 
