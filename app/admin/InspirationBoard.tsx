@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DragDropContext,
   Droppable,
   Draggable,
   type DropResult,
 } from "@hello-pangea/dnd";
-import { Plus, Trash2, X, Loader2 } from "lucide-react";
+import { Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
+import { useQueuedSave, useSyncOnFocus } from "./hooks";
 import type {
   Inspiration,
   InspirationBoard as BoardData,
@@ -59,7 +60,7 @@ export default function InspirationBoard({
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [toast, setToast] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   // 掛載後才渲染拖曳元件，避開 SSR / StrictMode 的 mounting 問題
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -69,23 +70,46 @@ export default function InspirationBoard({
     window.setTimeout(() => setToast(""), 2200);
   }
 
-  // 每次變更都把整個看板寫回 KV
-  async function persist(next: BoardData) {
+  // 寫回 KV：經佇列序列化＋合併，避免連續拖曳時 PUT 亂序（舊蓋新）
+  const { enqueue, saving, isBusy } = useQueuedSave<BoardData>(
+    async (payload) => {
+      try {
+        const res = await fetch("/api/inspirations", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ board: payload }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        flash("儲存失敗，請稍後再試");
+      }
+    },
+  );
+
+  // 每次變更：畫面先更新（樂觀），再排入儲存佇列
+  const lastMutationAt = useRef(0);
+  function persist(next: BoardData) {
     setBoard(next);
-    setSaving(true);
-    try {
-      const res = await fetch("/api/inspirations", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board: next }),
-      });
-      if (!res.ok) throw new Error();
-    } catch {
-      flash("儲存失敗，請稍後再試");
-    } finally {
-      setSaving(false);
-    }
+    lastMutationAt.current = Date.now();
+    enqueue(next);
   }
+
+  // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
+  // 編輯中、儲存中、或 10 秒內剛改過（避免讀取複本延遲蓋掉新資料）則跳過。
+  useSyncOnFocus(async () => {
+    if (editing || isBusy()) return;
+    if (Date.now() - lastMutationAt.current < 10_000) return;
+    try {
+      const res = await fetch("/api/inspirations");
+      if (!res.ok) return;
+      const { board: fresh } = (await res.json()) as { board: BoardData };
+      setBoard((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
 
   function onDragEnd(result: DropResult) {
     const { source, destination } = result;
@@ -150,6 +174,49 @@ export default function InspirationBoard({
     };
     persist(next);
     if (editing?.id === id) setEditing(null);
+  }
+
+  // ✨ 內容矩陣引擎：長文電子報 → 短影音腳本，自動建卡到「🎬 短影片」欄
+  async function generateShortVideo() {
+    if (!editing || generating) return;
+    const content = draftContent.trim();
+    if (!content) {
+      flash("內容是空的，請先貼上長文再生成");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/matrix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: draftTitle, content }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        script?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data?.error || "生成失敗，請稍後再試");
+      const script = String(data.script ?? "").trim();
+      if (!script) throw new Error("生成結果為空，請再試一次");
+
+      const card: Inspiration = {
+        id: newId(),
+        title: `🎬 ${draftTitle || "短影音腳本"}`,
+        content: script,
+        updatedAt: nowIso(),
+      };
+      // 以最新 board 為底加卡（不動使用者尚未儲存的 Modal 草稿）
+      const next: BoardData = {
+        ...board,
+        shortvideo: [card, ...board.shortvideo],
+      };
+      persist(next);
+      flash("已生成短影音腳本，放進「🎬 短影片」欄");
+    } catch (e) {
+      flash(e instanceof Error && e.message ? e.message : "生成失敗，請稍後再試");
+    } finally {
+      setGenerating(false);
+    }
   }
 
   // 尚未掛載前不渲染拖曳樹（面板初始為 hidden，使用者切到本頁時早已掛載完成）
@@ -234,7 +301,7 @@ export default function InspirationBoard({
                               )}
                             </div>
                             {card.content && (
-                              <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs text-paper-muted">
+                              <p className="mt-1 line-clamp-3 whitespace-pre-line break-words text-xs text-paper-muted">
                                 {card.content}
                               </p>
                             )}
@@ -275,7 +342,7 @@ export default function InspirationBoard({
           onClick={() => setEditing(null)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-float"
+            className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -306,6 +373,35 @@ export default function InspirationBoard({
               value={draftContent}
               onChange={(e) => setDraftContent(e.target.value)}
             />
+
+            {/* ✨ 內容矩陣引擎：只在「長文電子報」欄的卡片顯示 */}
+            {editing.status === "newsletter" && (
+              <div className="mt-4 rounded-lg border border-brand-200 bg-brand-50/60 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 text-xs text-paper-muted">
+                    以 AI 萃取本文精華，生成 300 字內短影音腳本
+                    <br />
+                    （Hook → 核心邏輯 → CTA），自動放入「🎬 短影片」欄。
+                  </div>
+                  <button
+                    onClick={generateShortVideo}
+                    disabled={generating || !draftContent.trim()}
+                    className="btn-primary shrink-0"
+                    title="矩陣生成：轉短影音"
+                  >
+                    {generating ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" /> 生成中…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} /> 矩陣生成：轉短影音
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 flex items-center justify-between">
               <button

@@ -17,17 +17,30 @@
 | `/api/quotes/[id]/accept` | `POST` 客戶線上確認接受報價（公開，首次確認後鎖定） |
 | `/api/inspirations` | `GET` 讀取靈感看板 / `PUT` 儲存整個看板（需登入） |
 | `/api/todos` | `GET` 讀取待辦清單 / `PUT` 儲存整個清單（需登入） |
+| `/api/notes` `(/[id])` | 📚 知識庫筆記 CRUD（需登入）；`/shared/note/[token]` 為對外唯讀分享頁 |
+| `/api/matrix` | `POST` ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入 + `ANTHROPIC_API_KEY`） |
 | `/api/admin/login` | `POST` 登入 / `DELETE` 登出 |
 | `/api/test-db` | `GET` Vercel KV 連線健檢（寫入→讀回→比對；`?keep=1` 保留） |
 
 ### 創作者工作區 (Creator Workspace)
-`/admin` 以頁籤切換三個工具（純前端切換、不重整、各自保留狀態）：
+`/admin` 以頁籤切換四個工具（純前端切換、不重整、各自保留狀態）：
 - **💰 報價系統**：原有報價單功能。
 - **📝 寫作靈感**：四欄看板（💡靈感池 / 📰長文電子報 / 🎬短影片 / 📦已封存），
   以 `@hello-pangea/dnd` 拖曳切換狀態，點卡片開 Modal 編輯（多行 / 基本 Markdown）；
   已封存欄卡片淡化。每次變更即存回 KV（`workspace:inspirations` 單一 JSON blob）。
-- **✅ 待辦清單**：兩區（🔥立即處理 / ⏳稍後再說），輸入按 Enter 新增、🗑️ 直接刪除，
-  存於 `workspace:todos`。
+- **✅ 待辦清單**：三區（🔥立即處理 / ⏳稍後再說 / 🎯長期要做的事），
+  點「新增」加入、🗑️ 直接刪除，存於 `workspace:todos`。
+- **📚 知識庫**：取代 Apple Notes 的筆記中心（Markdown、標籤、諮詢模板、
+  一鍵開對外唯讀分享連結 `/shared/note/[token]`）。
+
+### ✨ 內容矩陣引擎 (Content Matrix Engine)
+在「📝 寫作靈感 → 長文電子報」欄的卡片 Modal 中，按 **「✨ 矩陣生成：轉短影音」**：
+- 後端 `/api/matrix` 以 **Vercel AI SDK（`ai` + `@ai-sdk/anthropic`，模型 `claude-opus-4-8`）**
+  扮演資深內容總監，把長文萃取成 300 字內的短影音腳本
+  （黃金前 3 秒 Hook → 核心邏輯推演 → 強而有力 CTA）。
+- 生成結果自動建立成新卡片、放入「🎬 短影片」欄並即時同步 KV。
+- 需設定環境變數 `ANTHROPIC_API_KEY`（見 `.env.local.example`）；
+  未設定時按鈕會回覆明確錯誤提示，其餘功能不受影響。
 
 ### 亮點
 - **內建網站案範本**：9 項標準報價、專案需求、7 階段流程與雲端/設計稿連結欄位皆預設好，開新報價幾乎只需填客戶名與頁數。
@@ -67,6 +80,22 @@ npm run dev
 
 ---
 
+## 🛠️ 開發指令 (Scripts)
+
+| 指令 | 說明 |
+| --- | --- |
+| `npm run dev` | 啟動開發伺服器（http://localhost:3000） |
+| `npm run build` | 產生正式建置（含型別檢查與 lint） |
+| `npm run lint` | ESLint（`eslint-config-next`） |
+| `npm run typecheck` | TypeScript 型別檢查（`tsc --noEmit`，不產出檔案） |
+| `npm run check` | **一鍵品質檢查**：依序跑 lint + typecheck（`npm-run-all`） |
+| `npm run format` | Prettier 全案自動格式化（設定見 `.prettierrc`；`*.md`、`public/` 已排除） |
+| `npm run format:check` | 只檢查格式、不改檔案（適合 CI） |
+
+> 建議在 commit 前跑 `npm run check`；`npm run format` 為選用（新程式碼已符合 prettier 風格，跑一次即可統一舊檔）。
+
+---
+
 ## 🔑 Vercel KV 設定
 
 1. Vercel Dashboard → 你的專案 → **Storage** → **Create Database** → 選 **KV (Upstash Redis)**。
@@ -80,6 +109,9 @@ KV_REST_API_READ_ONLY_TOKEN="..."
 
 ADMIN_PASSWORD="你的後台密碼"
 NEXT_PUBLIC_SITE_URL="https://your-project.vercel.app"
+
+# ✨ 內容矩陣引擎（選用；未設定則僅該功能停用）
+ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD`）。

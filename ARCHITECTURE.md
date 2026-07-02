@@ -24,9 +24,10 @@
 | 樣式 | **Tailwind CSS** | `^3.4.13` | 品牌深藍漸層、Notion 風格；`@media print` 切換 Excel 排版 |
 | 資料庫 | **@vercel/kv** | `^2.0.0` | 底層為 Upstash Redis（走 HTTP REST） |
 | 拖曳 | **@hello-pangea/dnd** | `^18.0.1` | `react-beautiful-dnd` 的 StrictMode-safe fork，用於靈感看板 |
+| AI | **ai (Vercel AI SDK)** + **@ai-sdk/anthropic** | `^6.0` / `^3.0` | ✨ 內容矩陣引擎（`/api/matrix`，模型 `claude-opus-4-8`）；需 `ANTHROPIC_API_KEY` |
 | 圖示 | **lucide-react** | `^0.454.0` | |
 | ID 產生 | **nanoid** | `^5.0.7` | 報價單 `nanoid(10)`、卡片/待辦 fallback id |
-| 建置工具 | postcss `^8.4` / autoprefixer `^10.4` / eslint `8.57` + `eslint-config-next` | | |
+| 建置工具 | postcss `^8.4` / autoprefixer `^10.4` / eslint `8.57` + `eslint-config-next` / prettier `^3.9` / npm-run-all | | `npm run check` = lint + typecheck |
 
 **執行環境**：`engines.node >= 18.17.0`。開發機請以 **Node 20**（`nvm use 20`）建置，系統預設的舊版 Node 無法建置。
 
@@ -48,9 +49,10 @@ siddblue-system/
 │   │   ├── AdminLogin.tsx        # 密碼登入（未通過驗證時顯示）
 │   │   ├── AdminWorkspace.tsx    # 客戶端頁籤外殼（桌機頂部頁籤 / 手機底部導覽）
 │   │   ├── AdminEditor.tsx       # 💰 報價單編輯器（含狀態切換、營業稅切換）
-│   │   ├── InspirationBoard.tsx  # 📝 靈感看板（@hello-pangea/dnd 拖曳）
+│   │   ├── InspirationBoard.tsx  # 📝 靈感看板（@hello-pangea/dnd 拖曳；✨ 矩陣生成按鈕）
 │   │   ├── TodoBoard.tsx         # ✅ 待辦清單
-│   │   └── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
+│   │   ├── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
+│   │   └── hooks.ts              # useQueuedSave（防 PUT 亂序）/ useSyncOnFocus（切回分頁重新同步）
 │   │
 │   ├── quote/[id]/               # 對外報價/規格確認頁
 │   │   ├── page.tsx              # Server Component：依 id 讀 KV
@@ -69,6 +71,7 @@ siddblue-system/
 │       ├── todos/route.ts                # GET / PUT 待辦清單（需登入）
 │       ├── notes/route.ts                # GET 列表 / POST 建立筆記（需登入）
 │       ├── notes/[id]/route.ts           # GET / PUT / DELETE 單筆筆記（需登入）
+│       ├── matrix/route.ts               # POST ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入）
 │       ├── admin/login/route.ts          # POST 登入 / DELETE 登出
 │       └── test-db/route.ts              # GET KV 連線健檢
 │
@@ -101,7 +104,9 @@ siddblue-system/
 - **Server Components**（`app/**/page.tsx`）在伺服器端直接呼叫 `lib/kv.ts` / `lib/workspace-kv.ts` / `lib/notes-kv.ts` 讀取資料，並把資料當 props 傳給 Client Component。所有讀取一律呼叫 `unstable_noStore()`，避免 Next.js 快取造成資料過期。
 - **Client Components**（編輯器、看板、待辦、對外頁）以 `fetch` 呼叫 `/api/*` 進行寫入。
 - **樂觀更新 (Optimistic UI)**：靈感看板與待辦清單在本機先更新畫面，再 `PUT` 整個 board 回 KV，寫入後**不重新讀取**（故 Upstash 讀取複本延遲對使用者無影響）。
-- **後台頁籤**：`AdminWorkspace` 一次掛載三個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。
+- **防寫入亂序（`app/admin/hooks.ts` → `useQueuedSave`）**：整包覆寫 PUT 若併發送出，HTTP 回應順序不保證，舊請求可能最後落地、以舊蓋新。看板的 persist 一律經佇列：同時最多一個請求在途，期間的變更只保留最新酬載、完成後補送一次（序列化＋合併），連續快速拖曳也不會遺失資料。
+- **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。
+- **後台頁籤**：`AdminWorkspace` 一次掛載四個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。
 
 ---
 
@@ -290,6 +295,7 @@ interface Note {
 | `GET /api/notes/[id]` | 讀取單筆筆記（後台用） | 需登入 | `getNote()` |
 | `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
 | `DELETE /api/notes/[id]` | 刪除筆記（同時移出 index 與 share 對應） | 需登入 | `deleteNote()` |
+| `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `ANTHROPIC_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/anthropic，`claude-opus-4-8`） |
 | `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie | 公開 | `verifyPassword()` + `expectedToken()` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
 | `GET /api/test-db` | KV 連線健檢（寫→讀→比對→刪）；`?keep=1` 保留 | 公開 | 直接呼叫 `kv` |
@@ -387,6 +393,7 @@ function computeTotals(items: QuoteItem[], taxInclusive: boolean): QuoteTotals;
 | `KV_URL` | Redis 連線字串（KV 整合附帶） | 選填 |
 | `ADMIN_PASSWORD` | 後台密碼；未設定則後台開放 | 建議設定 |
 | `NEXT_PUBLIC_SITE_URL` | 產生對外連結的基底網址 | 選填 |
+| `ANTHROPIC_API_KEY` | ✨ 內容矩陣引擎（`/api/matrix`）呼叫 Claude 所需；未設定時該功能回 503、其餘功能不受影響 | 使用矩陣生成時必填 |
 
 ---
 

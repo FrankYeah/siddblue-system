@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DragDropContext,
   Droppable,
@@ -8,6 +8,7 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { Plus, Trash2, Loader2, GripVertical } from "lucide-react";
+import { useQueuedSave, useSyncOnFocus } from "./hooks";
 import type { Todo, TodoBoard as BoardData, TodoBucket } from "@/lib/types";
 
 const BUCKETS: { key: TodoBucket; title: string; accent: string }[] = [
@@ -38,7 +39,6 @@ export default function TodoBoard({
     null,
   );
   const [editText, setEditText] = useState("");
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   // 掛載後才渲染拖曳元件，避開 SSR / StrictMode 的 mounting 問題
   const [mounted, setMounted] = useState(false);
@@ -49,22 +49,46 @@ export default function TodoBoard({
     window.setTimeout(() => setToast(""), 2200);
   }
 
-  async function persist(next: BoardData) {
+  // 寫回 KV：經佇列序列化＋合併，避免連續拖曳時 PUT 亂序（舊蓋新）
+  const { enqueue, saving, isBusy } = useQueuedSave<BoardData>(
+    async (payload) => {
+      try {
+        const res = await fetch("/api/todos", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ board: payload }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        flash("儲存失敗，請稍後再試");
+      }
+    },
+  );
+
+  // 每次變更：畫面先更新（樂觀），再排入儲存佇列
+  const lastMutationAt = useRef(0);
+  function persist(next: BoardData) {
     setBoard(next);
-    setSaving(true);
-    try {
-      const res = await fetch("/api/todos", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board: next }),
-      });
-      if (!res.ok) throw new Error();
-    } catch {
-      flash("儲存失敗，請稍後再試");
-    } finally {
-      setSaving(false);
-    }
+    lastMutationAt.current = Date.now();
+    enqueue(next);
   }
+
+  // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
+  // 編輯中、儲存中、或 10 秒內剛改過（避免讀取複本延遲蓋掉新資料）則跳過。
+  useSyncOnFocus(async () => {
+    if (editing || isBusy()) return;
+    if (Date.now() - lastMutationAt.current < 10_000) return;
+    try {
+      const res = await fetch("/api/todos");
+      if (!res.ok) return;
+      const { board: fresh } = (await res.json()) as { board: BoardData };
+      setBoard((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
 
   // 只有點擊「新增」按鈕才會加入（不再以 Enter 自動提交，避免誤觸）
   function addTodo(bucket: TodoBucket) {

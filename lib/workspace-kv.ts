@@ -28,8 +28,16 @@ const KV_ENABLED = Boolean(
 );
 
 // 記憶體後援
-let memInspirations: InspirationBoard | null = null;
-let memTodos: TodoBoard | null = null;
+// 掛在 globalThis 上，確保開發模式下 Route Handler 與 Server Component
+// 這些分開打包的模組實例共用同一份資料 (正式環境走 KV，不會用到此後援)。
+const mem = ((
+  globalThis as unknown as {
+    __sbWorkspaceMem?: {
+      inspirations: InspirationBoard | null;
+      todos: TodoBoard | null;
+    };
+  }
+).__sbWorkspaceMem ??= { inspirations: null, todos: null });
 
 const INSPIRATION_STATUSES: InspirationStatus[] = [
   "idea",
@@ -99,7 +107,7 @@ export async function getInspirations(): Promise<InspirationBoard> {
     const raw = await kv.get<InspirationBoard>(INSPIRATIONS_KEY);
     return sanitizeInspirationBoard(raw);
   }
-  return memInspirations ?? emptyInspirationBoard();
+  return mem.inspirations ?? emptyInspirationBoard();
 }
 
 export async function saveInspirations(
@@ -109,7 +117,7 @@ export async function saveInspirations(
   if (KV_ENABLED) {
     await kv.set(INSPIRATIONS_KEY, board);
   } else {
-    memInspirations = board;
+    mem.inspirations = board;
   }
   return board;
 }
@@ -122,7 +130,7 @@ export async function getTodos(): Promise<TodoBoard> {
     const raw = await kv.get<TodoBoard>(TODOS_KEY);
     return sanitizeTodoBoard(raw);
   }
-  return memTodos ?? emptyTodoBoard();
+  return mem.todos ?? emptyTodoBoard();
 }
 
 export async function saveTodos(raw: unknown): Promise<TodoBoard> {
@@ -130,7 +138,7 @@ export async function saveTodos(raw: unknown): Promise<TodoBoard> {
   if (KV_ENABLED) {
     await kv.set(TODOS_KEY, board);
   } else {
-    memTodos = board;
+    mem.todos = board;
   }
   return board;
 }

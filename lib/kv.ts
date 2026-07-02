@@ -25,7 +25,11 @@ const KV_ENABLED = Boolean(
 );
 
 // ── 記憶體後援 (本機無 KV 時使用) ──
-const memStore = new Map<string, Quote>();
+// 掛在 globalThis 上，確保開發模式下 Route Handler 與 Server Component
+// 這些分開打包的模組實例共用同一份資料 (正式環境走 KV，不會用到此後援)。
+const memStore: Map<string, Quote> = ((
+  globalThis as unknown as { __sbQuotesMem?: Map<string, Quote> }
+).__sbQuotesMem ??= new Map<string, Quote>());
 
 const QUOTE_STATUSES: QuoteStatus[] = ["draft", "sent", "confirmed"];
 

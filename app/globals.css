@@ -55,7 +55,8 @@ body {
    由 lib/markdown.ts 產出安全 HTML，這裡負責排版樣式
    ─────────────────────────────────────────────────────────── */
 .md-content {
-  @apply text-[15px] leading-7 text-paper-text;
+  /* break-words：長網址 / 連續英數字串在手機窄版不會撐破卡片 */
+  @apply break-words text-[15px] leading-7 text-paper-text;
 }
 .md-content > :first-child {
   margin-top: 0;

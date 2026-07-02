@@ -464,7 +464,7 @@ export default function NotesBoard({
                       readOnly
                       value={shareLink}
                       onFocus={(e) => e.currentTarget.select()}
-                      className="field-input flex-1 text-xs"
+                      className="field-input min-w-0 flex-1 text-xs"
                     />
                     <button
                       onClick={copyLink}

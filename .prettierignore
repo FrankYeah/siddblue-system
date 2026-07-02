@@ -1,0 +1,10 @@
+# 建置產物與依賴
+.next/
+node_modules/
+package-lock.json
+
+# 靜態資源
+public/
+
+# 文件（表格排版交由人工維護，避免 prettier 重排 Markdown 表格）
+*.md
