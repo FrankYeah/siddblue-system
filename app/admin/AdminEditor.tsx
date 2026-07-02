@@ -13,14 +13,13 @@ import {
   Sparkles,
   FilePlus2,
   Loader2,
-  LogOut,
   ExternalLink,
   ClipboardList,
   BadgeCheck,
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
+import { CodeBraces } from "@/components/BrandDecor";
 import {
   buildDefaultQuoteInput,
   DEFAULT_ITEMS,
@@ -29,7 +28,6 @@ import {
   DEFAULT_SUPPLEMENTARY_NOTES,
   DEFAULT_PAYMENT_INFO,
   DEFAULT_SUMMARY_TEXT,
-  COMPANY_NAME,
 } from "@/lib/defaults";
 import { itemsTotal, formatNT, quoteToInput } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
@@ -37,10 +35,8 @@ import type { Quote, QuoteInput, QuoteItem, QuoteSummary } from "@/lib/types";
 
 export default function AdminEditor({
   initialQuotes,
-  protectedMode,
 }: {
   initialQuotes: QuoteSummary[];
-  protectedMode: boolean;
 }) {
   const [quotes, setQuotes] = useState<QuoteSummary[]>(initialQuotes);
   const [form, setForm] = useState<QuoteInput>(buildDefaultQuoteInput());
@@ -350,41 +346,19 @@ export default function AdminEditor({
     window.setTimeout(() => setCopied(false), 1800);
   }
 
-  async function logout() {
-    await fetch("/api/admin/login", { method: "DELETE" });
-    window.location.reload();
-  }
-
   return (
-    <div className="min-h-screen bg-paper-bg">
-      {/* 頂部品牌列 */}
-      <header className="relative overflow-hidden bg-brand-gradient text-white">
-        <PaperPlane
-          size={70}
-          className="absolute right-6 top-4 text-white/20 animate-float-plane"
-        />
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div>
-            <div className="flex items-center gap-2 text-sm text-white/80">
-              <CodeBraces className="text-white/80" />
-              報價後台
-            </div>
-            <h1 className="text-xl font-bold">{COMPANY_NAME}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={newQuote} className="btn bg-white/15 text-white hover:bg-white/25">
-              <FilePlus2 size={16} /> 新報價單
-            </button>
-            {protectedMode && (
-              <button onClick={logout} className="btn bg-white/15 text-white hover:bg-white/25">
-                <LogOut size={16} /> 登出
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+    <div>
+      {/* 報價系統工具列 */}
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 pt-6">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-paper-text">
+          <CodeBraces className="text-brand-500" /> 報價系統
+        </h2>
+        <button onClick={newQuote} className="btn-ghost">
+          <FilePlus2 size={16} /> 新報價單
+        </button>
+      </div>
 
-      <div className="mx-auto grid max-w-6xl gap-6 px-6 py-8 lg:grid-cols-[260px_1fr]">
+      <div className="mx-auto grid max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[260px_1fr]">
         {/* 側欄：已儲存報價單 */}
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="notion-block !p-4">

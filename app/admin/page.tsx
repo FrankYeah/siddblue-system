@@ -1,7 +1,8 @@
 import { isAuthenticated, adminPasswordSet } from "@/lib/auth";
 import { listQuotes } from "@/lib/kv";
+import { getInspirations, getTodos } from "@/lib/workspace-kv";
 import AdminLogin from "./AdminLogin";
-import AdminEditor from "./AdminEditor";
+import AdminWorkspace from "./AdminWorkspace";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,18 @@ export default async function AdminPage() {
     return <AdminLogin />;
   }
 
-  const quotes = await listQuotes();
+  const [quotes, inspirations, todos] = await Promise.all([
+    listQuotes(),
+    getInspirations(),
+    getTodos(),
+  ]);
+
   return (
-    <AdminEditor initialQuotes={quotes} protectedMode={adminPasswordSet()} />
+    <AdminWorkspace
+      initialQuotes={quotes}
+      initialInspirations={inspirations}
+      initialTodos={todos}
+      protectedMode={adminPasswordSet()}
+    />
   );
 }

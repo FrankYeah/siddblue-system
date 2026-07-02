@@ -108,3 +108,38 @@ export type QuoteInput = Omit<
   Quote,
   "id" | "createdAt" | "updatedAt" | "acceptedAt" | "acceptedBy"
 >;
+
+// ═════════════════════════════════════════════════════════════
+//  創作者工作區 (Creator Workspace)
+// ═════════════════════════════════════════════════════════════
+
+/** 寫作靈感看板的欄位狀態 */
+export type InspirationStatus =
+  | "idea" // 💡 靈感池
+  | "newsletter" // 📰 長文電子報
+  | "shortvideo" // 🎬 短影片
+  | "archived"; // 📦 已封存
+
+/** 靈感卡片 */
+export interface Inspiration {
+  id: string;
+  title: string;
+  /** 內容 (支援多行 / 基本 Markdown) */
+  content: string;
+  updatedAt: string;
+}
+
+/** 靈感看板：依欄位分組，陣列順序即卡片顯示順序 */
+export type InspirationBoard = Record<InspirationStatus, Inspiration[]>;
+
+/** 待辦清單分區 */
+export type TodoBucket = "now" | "later"; // 🔥 立即處理 / ⏳ 稍後再說
+
+/** 待辦任務 (極簡：僅純文字標題) */
+export interface Todo {
+  id: string;
+  title: string;
+}
+
+/** 待辦清單：依分區分組 */
+export type TodoBoard = Record<TodoBucket, Todo[]>;

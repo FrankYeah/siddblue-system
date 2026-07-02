@@ -15,8 +15,19 @@
 | `/api/quotes` | `GET` 列表 / `POST` 建立 |
 | `/api/quotes/[id]` | `GET` 讀取 / `PUT` 更新 / `DELETE` 刪除 |
 | `/api/quotes/[id]/accept` | `POST` 客戶線上確認接受報價（公開，首次確認後鎖定） |
+| `/api/inspirations` | `GET` 讀取靈感看板 / `PUT` 儲存整個看板（需登入） |
+| `/api/todos` | `GET` 讀取待辦清單 / `PUT` 儲存整個清單（需登入） |
 | `/api/admin/login` | `POST` 登入 / `DELETE` 登出 |
 | `/api/test-db` | `GET` Vercel KV 連線健檢（寫入→讀回→比對；`?keep=1` 保留） |
+
+### 創作者工作區 (Creator Workspace)
+`/admin` 以頁籤切換三個工具（純前端切換、不重整、各自保留狀態）：
+- **💰 報價系統**：原有報價單功能。
+- **📝 寫作靈感**：四欄看板（💡靈感池 / 📰長文電子報 / 🎬短影片 / 📦已封存），
+  以 `@hello-pangea/dnd` 拖曳切換狀態，點卡片開 Modal 編輯（多行 / 基本 Markdown）；
+  已封存欄卡片淡化。每次變更即存回 KV（`workspace:inspirations` 單一 JSON blob）。
+- **✅ 待辦清單**：兩區（🔥立即處理 / ⏳稍後再說），輸入按 Enter 新增、🗑️ 直接刪除，
+  存於 `workspace:todos`。
 
 ### 亮點
 - **內建網站案範本**：9 項標準報價、專案需求、7 階段流程與雲端/設計稿連結欄位皆預設好，開新報價幾乎只需填客戶名與頁數。
