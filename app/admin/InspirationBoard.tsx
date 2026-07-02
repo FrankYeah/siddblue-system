@@ -210,12 +210,21 @@ export default function InspirationBoard({
                     {board[col.key].map((card, index) => (
                       <Draggable draggableId={card.id} index={index} key={card.id}>
                         {(dp, ds) => (
-                          <button
+                          // 用 <div> 而非 <button>：@hello-pangea/dnd 不會從互動元素
+                          // (button/a/input…) 啟動拖曳，卡片若是 button 會出現抓取游標
+                          // 卻完全拖不動。改成 div 後，點擊 = 開編輯、拖曳 = 排序/跨欄。
+                          <div
                             ref={dp.innerRef}
                             {...dp.draggableProps}
                             {...dp.dragHandleProps}
                             onClick={() => openEditor(col.key, card)}
-                            className={`group w-full rounded-lg border border-paper-border bg-white p-3 text-left shadow-sm transition hover:border-brand-300 hover:shadow-card ${
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                openEditor(col.key, card);
+                              }
+                            }}
+                            className={`group w-full cursor-grab rounded-lg border border-paper-border bg-white p-3 text-left shadow-sm transition hover:border-brand-300 hover:shadow-card active:cursor-grabbing ${
                               ds.isDragging ? "shadow-float ring-2 ring-brand-300" : ""
                             } ${col.key === "archived" ? "opacity-60" : ""}`}
                           >
@@ -246,7 +255,7 @@ export default function InspirationBoard({
                                 <Trash2 size={13} />
                               </span>
                             </div>
-                          </button>
+                          </div>
                         )}
                       </Draggable>
                     ))}

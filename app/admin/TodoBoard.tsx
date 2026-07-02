@@ -6,7 +6,6 @@ import {
   Droppable,
   Draggable,
   type DropResult,
-  type DraggableProvidedDragHandleProps,
 } from "@hello-pangea/dnd";
 import { Plus, Trash2, Loader2, GripVertical } from "lucide-react";
 import type { Todo, TodoBoard as BoardData, TodoBucket } from "@/lib/types";
@@ -234,11 +233,10 @@ function TodoList({
 }) {
   const empty = items.length === 0;
 
-  // 卡片內容（編輯中 → 原地輸入框；否則 → 拖曳把手 + 可點擊標題 + 刪除）
-  function cardBody(
-    t: Todo,
-    dragHandleProps?: DraggableProvidedDragHandleProps | null,
-  ) {
+  // 卡片內容（編輯中 → 原地輸入框；否則 → 把手圖示 + 可點擊標題 + 刪除）
+  // 整張卡片皆為拖曳把手（dragHandleProps 綁在外層 <li>），此處標題改用
+  // 非互動的 <div>，讓「點擊 = 編輯、拖曳 = 排序」在整張卡片上都成立。
+  function cardBody(t: Todo) {
     if (editingId === t.id) {
       return (
         <input
@@ -260,23 +258,21 @@ function TodoList({
     }
     return (
       <>
-        <span
-          {...dragHandleProps}
-          className="shrink-0 cursor-grab touch-none text-paper-muted active:cursor-grabbing"
-          title="拖曳排序"
-          aria-label="拖曳排序"
-        >
+        <span className="shrink-0 text-paper-muted" aria-hidden="true">
           <GripVertical size={18} />
         </span>
-        <button
+        <div
           onClick={() => onStartEdit(t)}
-          className="min-w-0 flex-1 break-words text-left text-base text-paper-text"
+          className="min-w-0 flex-1 break-words text-base text-paper-text"
           title="點擊編輯"
         >
           {t.title}
-        </button>
+        </div>
         <button
-          onClick={() => onRemove(t.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(t.id);
+          }}
           className="shrink-0 rounded-md p-2 text-paper-muted transition hover:bg-red-50 hover:text-red-600"
           title="刪除"
         >
@@ -324,18 +320,26 @@ function TodoList({
             <li className="px-1 py-4 text-sm text-paper-muted">目前沒有任務。</li>
           )}
           {items.map((t, index) => (
-            <Draggable draggableId={t.id} index={index} key={t.id}>
+            <Draggable
+              draggableId={t.id}
+              index={index}
+              key={t.id}
+              isDragDisabled={editingId === t.id}
+            >
               {(dp, ds) => (
                 <li
                   ref={dp.innerRef}
                   {...dp.draggableProps}
+                  {...dp.dragHandleProps}
                   className={`flex min-h-[64px] items-center gap-2 rounded-xl border border-paper-border p-4 transition ${
+                    editingId === t.id ? "" : "cursor-grab active:cursor-grabbing"
+                  } ${
                     ds.isDragging
                       ? "bg-white shadow-float ring-2 ring-brand-300"
                       : "bg-paper-block/40 hover:bg-paper-block"
                   }`}
                 >
-                  {cardBody(t, dp.dragHandleProps)}
+                  {cardBody(t)}
                 </li>
               )}
             </Draggable>
