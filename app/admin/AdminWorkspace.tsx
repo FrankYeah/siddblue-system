@@ -88,13 +88,13 @@ export default function AdminWorkspace({
       {/* 面板 (全部掛載，以 hidden 切換 → 保留各自狀態、無需重新載入整頁)
           手機底部留白，避免內容被固定底部導覽遮住 */}
       <main className="pb-24 sm:pb-0">
-        <div className={tab === "quote" ? "animate-fade-up" : "hidden"}>
+        <div className={tab === "quote" ? "animate-fade-in" : "hidden"}>
           <AdminEditor initialQuotes={initialQuotes} />
         </div>
-        <div className={tab === "inspiration" ? "animate-fade-up" : "hidden"}>
+        <div className={tab === "inspiration" ? "animate-fade-in" : "hidden"}>
           <InspirationBoard initialBoard={initialInspirations} />
         </div>
-        <div className={tab === "todo" ? "animate-fade-up" : "hidden"}>
+        <div className={tab === "todo" ? "animate-fade-in" : "hidden"}>
           <TodoBoard initialBoard={initialTodos} />
         </div>
       </main>

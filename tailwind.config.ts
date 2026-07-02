@@ -74,11 +74,18 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(12px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        // 純 opacity 進場（不留下 transform）：供含拖曳的面板使用，
+        // 避免 transform 建立 containing block 破壞 @hello-pangea/dnd 的 fixed 定位
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
       },
       animation: {
         "float-plane": "float-plane 6s ease-in-out infinite",
         "gull-glide": "gull-glide 7s ease-in-out infinite",
         "fade-up": "fade-up 0.5s ease-out both",
+        "fade-in": "fade-in 0.4s ease-out both",
       },
     },
   },

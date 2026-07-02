@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DragDropContext,
   Droppable,
@@ -60,6 +60,9 @@ export default function InspirationBoard({
   const [draftContent, setDraftContent] = useState("");
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
+  // 掛載後才渲染拖曳元件，避開 SSR / StrictMode 的 mounting 問題
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   function flash(msg: string) {
     setToast(msg);
@@ -148,6 +151,9 @@ export default function InspirationBoard({
     persist(next);
     if (editing?.id === id) setEditing(null);
   }
+
+  // 尚未掛載前不渲染拖曳樹（面板初始為 hidden，使用者切到本頁時早已掛載完成）
+  if (!mounted) return null;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-6">
