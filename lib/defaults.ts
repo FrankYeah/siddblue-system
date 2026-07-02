@@ -21,10 +21,10 @@ export const COMPANY_TAX_ID = "93662829";
 /** 公司英文 / 品牌識別 */
 export const COMPANY_BRAND_EN = "Siddblue Studio";
 
-/** 預設付款帳戶資訊 (帳號經確認為 1243-3500-9494) */
+/** 預設付款帳戶資訊 (帳號經確認為 1240-3500-9494；分行代碼為 1243) */
 export const DEFAULT_PAYMENT_INFO = [
   "國泰世華銀行 (013) 基隆分行 (1243)",
-  "帳號：1243-3500-9494",
+  "帳號：1240-3500-9494",
   `統編：${COMPANY_TAX_ID}`,
   `戶名：${COMPANY_NAME}`,
 ].join("\n");
