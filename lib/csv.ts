@@ -1,5 +1,5 @@
 import type { Quote } from "./types";
-import { itemsTotal } from "./format";
+import { computeTotals } from "./format";
 
 // ─────────────────────────────────────────────────────────────
 //  CSV 匯出工具 (前端使用)
@@ -37,7 +37,17 @@ export function quoteToCsv(quote: Quote): string {
   });
 
   rows.push([]);
-  rows.push(["", "", "合計 (NT$)", String(itemsTotal(quote.items))]);
+  const { subtotal, tax, grandTotal } = computeTotals(
+    quote.items,
+    quote.taxInclusive,
+  );
+  if (quote.taxInclusive) {
+    rows.push(["", "", "未稅金額 (NT$)", String(subtotal)]);
+    rows.push(["", "", "營業稅 5% (NT$)", String(tax)]);
+    rows.push(["", "", "含稅總計 (NT$)", String(grandTotal)]);
+  } else {
+    rows.push(["", "", "合計 (NT$)", String(subtotal)]);
+  }
   rows.push([]);
 
   if (quote.summaryText) {

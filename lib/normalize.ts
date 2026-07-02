@@ -55,6 +55,7 @@ export function normalizeQuoteInput(input: QuoteInput): QuoteInput {
       : [],
     projectBrief: normalizeProjectBrief(input.projectBrief),
     summaryText: String(input.summaryText ?? ""),
+    taxInclusive: Boolean(input.taxInclusive),
     paymentInfo: String(input.paymentInfo ?? ""),
     processSteps: normalizeProcessSteps(input.processSteps),
     maintenanceRules: Array.isArray(input.maintenanceRules)

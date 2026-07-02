@@ -1,8 +1,8 @@
 import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
 import { unstable_noStore as noStore } from "next/cache";
-import type { Quote, QuoteInput, QuoteSummary } from "./types";
-import { itemsTotal } from "./format";
+import type { Quote, QuoteInput, QuoteStatus, QuoteSummary } from "./types";
+import { computeTotals } from "./format";
 import { normalizeProcessSteps, normalizeProjectBrief } from "./normalize";
 
 // ─────────────────────────────────────────────────────────────
@@ -27,13 +27,22 @@ const KV_ENABLED = Boolean(
 // ── 記憶體後援 (本機無 KV 時使用) ──
 const memStore = new Map<string, Quote>();
 
-/** 相容舊資料：把舊版 processSteps(string[]) 與缺少的 projectBrief 補正 */
+const QUOTE_STATUSES: QuoteStatus[] = ["draft", "sent", "confirmed"];
+
+/** 相容舊資料：補齊 processSteps / projectBrief / taxInclusive / status */
 function migrateQuote(q: Quote | null): Quote | null {
   if (!q) return null;
   return {
     ...q,
     projectBrief: normalizeProjectBrief(q.projectBrief),
     processSteps: normalizeProcessSteps(q.processSteps),
+    taxInclusive: Boolean(q.taxInclusive),
+    // 舊資料無 status：已確認過的視為「已確認」，其餘為「草稿」
+    status: QUOTE_STATUSES.includes(q.status)
+      ? q.status
+      : q.acceptedAt
+        ? "confirmed"
+        : "draft",
   };
 }
 
@@ -42,7 +51,8 @@ function toSummary(q: Quote): QuoteSummary {
     id: q.id,
     clientName: q.clientName,
     quoteDate: q.quoteDate,
-    total: itemsTotal(q.items),
+    total: computeTotals(q.items, q.taxInclusive).grandTotal,
+    status: q.status,
     updatedAt: q.updatedAt,
     acceptedAt: q.acceptedAt,
   };
@@ -54,6 +64,7 @@ export async function createQuote(input: QuoteInput): Promise<Quote> {
   const quote: Quote = {
     ...input,
     id: nanoid(10),
+    status: "draft",
     createdAt: now,
     updatedAt: now,
   };
@@ -104,6 +115,29 @@ export async function updateQuote(
   return updated;
 }
 
+/** 僅更新報價單狀態 (後台列表快速切換，不動其他欄位) */
+export async function updateQuoteStatus(
+  id: string,
+  status: QuoteStatus,
+): Promise<Quote | null> {
+  const existing = await getQuote(id);
+  if (!existing) return null;
+
+  const updated: Quote = {
+    ...existing,
+    status,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (KV_ENABLED) {
+    await kv.set(QUOTE_KEY(id), updated);
+    await kv.zadd(INDEX_KEY, { score: Date.now(), member: id });
+  } else {
+    memStore.set(id, updated);
+  }
+  return updated;
+}
+
 /** 客戶線上確認接受報價 (公開操作，不需後台驗證) */
 export async function acceptQuote(
   id: string,
@@ -117,6 +151,7 @@ export async function acceptQuote(
 
   const accepted: Quote = {
     ...existing,
+    status: "confirmed",
     acceptedAt: new Date().toISOString(),
     acceptedBy: name.trim() || existing.clientName,
     updatedAt: new Date().toISOString(),
@@ -163,4 +198,4 @@ export async function listQuotes(): Promise<QuoteSummary[]> {
     .map(toSummary);
 }
 
-export { KV_ENABLED };
+export { KV_ENABLED, QUOTE_STATUSES };

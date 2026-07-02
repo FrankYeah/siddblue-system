@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getQuote, updateQuote, deleteQuote } from "@/lib/kv";
+import {
+  getQuote,
+  updateQuote,
+  updateQuoteStatus,
+  deleteQuote,
+  QUOTE_STATUSES,
+} from "@/lib/kv";
 import { isAuthenticated } from "@/lib/auth";
 import { normalizeQuoteInput } from "@/lib/normalize";
-import type { QuoteInput } from "@/lib/types";
+import type { QuoteInput, QuoteStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +37,27 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ quote });
   } catch (err) {
     console.error("[PUT /api/quotes/:id]", err);
+    return NextResponse.json({ error: "更新失敗" }, { status: 500 });
+  }
+}
+
+// PATCH /api/quotes/[id] — 僅更新狀態 (草稿 / 已發送 / 已確認，需驗證)
+export async function PATCH(req: NextRequest, { params }: Params) {
+  if (!isAuthenticated()) {
+    return NextResponse.json({ error: "未授權" }, { status: 401 });
+  }
+  try {
+    const { status } = (await req.json()) as { status?: QuoteStatus };
+    if (!status || !QUOTE_STATUSES.includes(status)) {
+      return NextResponse.json({ error: "狀態值不合法" }, { status: 400 });
+    }
+    const quote = await updateQuoteStatus(params.id, status);
+    if (!quote) {
+      return NextResponse.json({ error: "找不到報價單" }, { status: 404 });
+    }
+    return NextResponse.json({ quote });
+  } catch (err) {
+    console.error("[PATCH /api/quotes/:id]", err);
     return NextResponse.json({ error: "更新失敗" }, { status: 500 });
   }
 }

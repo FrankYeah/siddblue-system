@@ -208,6 +208,7 @@ export function buildDefaultQuoteInput(): QuoteInput {
     items: DEFAULT_ITEMS.map((it) => ({ ...it })),
     projectBrief: { ...DEFAULT_PROJECT_BRIEF },
     summaryText: DEFAULT_SUMMARY_TEXT,
+    taxInclusive: false,
     paymentInfo: DEFAULT_PAYMENT_INFO,
     processSteps: DEFAULT_PROCESS_STEPS.map((s) => ({
       ...s,

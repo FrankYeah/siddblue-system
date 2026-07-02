@@ -15,10 +15,10 @@ import type {
 
 type Tab = "quote" | "inspiration" | "todo";
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "quote", label: "💰 報價系統" },
-  { key: "inspiration", label: "📝 寫作靈感" },
-  { key: "todo", label: "✅ 待辦清單" },
+const TABS: { key: Tab; icon: string; label: string }[] = [
+  { key: "quote", icon: "💰", label: "報價系統" },
+  { key: "inspiration", icon: "📝", label: "寫作靈感" },
+  { key: "todo", icon: "✅", label: "待辦清單" },
 ];
 
 export default function AdminWorkspace({
@@ -65,8 +65,8 @@ export default function AdminWorkspace({
             )}
           </div>
 
-          {/* 頁籤 */}
-          <nav className="mt-5 flex gap-1">
+          {/* 頁籤 (桌機：頂部；手機改用下方底部導覽) */}
+          <nav className="mt-5 hidden gap-1 sm:flex">
             {TABS.map((t) => (
               <button
                 key={t.key}
@@ -78,15 +78,16 @@ export default function AdminWorkspace({
                 }`}
                 aria-current={tab === t.key ? "page" : undefined}
               >
-                {t.label}
+                {t.icon} {t.label}
               </button>
             ))}
           </nav>
         </div>
       </header>
 
-      {/* 面板 (全部掛載，以 hidden 切換 → 保留各自狀態、無需重新載入整頁) */}
-      <main>
+      {/* 面板 (全部掛載，以 hidden 切換 → 保留各自狀態、無需重新載入整頁)
+          手機底部留白，避免內容被固定底部導覽遮住 */}
+      <main className="pb-24 sm:pb-0">
         <div className={tab === "quote" ? "animate-fade-up" : "hidden"}>
           <AdminEditor initialQuotes={initialQuotes} />
         </div>
@@ -97,6 +98,26 @@ export default function AdminWorkspace({
           <TodoBoard initialBoard={initialTodos} />
         </div>
       </main>
+
+      {/* 手機版底部導覽 (Bottom Navigation) */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
+        aria-label="主要功能"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 text-xs font-medium transition ${
+              tab === t.key ? "text-brand-600" : "text-paper-muted"
+            }`}
+            aria-current={tab === t.key ? "page" : undefined}
+          >
+            <span className="text-lg leading-none">{t.icon}</span>
+            {t.label}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

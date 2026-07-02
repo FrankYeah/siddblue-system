@@ -42,6 +42,12 @@ export interface ProjectBrief {
   sitePages: string;
 }
 
+/** 報價單狀態 (生命週期) */
+export type QuoteStatus =
+  | "draft" // 草稿
+  | "sent" // 已發送
+  | "confirmed"; // 已確認
+
 /** 維護費估價定義 (大 / 小 / 微調整) */
 export interface MaintenanceRule {
   /** 級距名稱，如「大調整」 */
@@ -68,6 +74,8 @@ export interface Quote {
   projectBrief: ProjectBrief;
   /** 總價與款項特殊備註 (老朋友折讓、未稅/含稅、頭期款比例等) */
   summaryText: string;
+  /** 是否含 5% 營業稅 (true=項目金額另加 5% 稅金；false=未稅) */
+  taxInclusive: boolean;
   /** 付款資訊 (預設帶入，可修改) */
   paymentInfo: string;
   /** 流程說明 (階段 + 說明 + 連結，可動態增刪) */
@@ -80,6 +88,9 @@ export interface Quote {
   // ── 公司抬頭資訊 (可覆寫，預設為西打藍) ──
   companyName: string;
   taxId: string;
+
+  /** 報價單狀態 (草稿 / 已發送 / 已確認)，系統管理，經列表切換或客戶確認更新 */
+  status: QuoteStatus;
 
   /** 建立時間 (ISO 字串) */
   createdAt: string;
@@ -98,15 +109,17 @@ export interface QuoteSummary {
   id: string;
   clientName: string;
   quoteDate: string;
+  /** 最終應付金額 (含稅則為含稅總計) */
   total: number;
+  status: QuoteStatus;
   updatedAt: string;
   acceptedAt?: string;
 }
 
-/** 表單輸入 (不含系統欄位與客戶確認狀態) */
+/** 表單輸入 (不含系統欄位、狀態與客戶確認狀態) */
 export type QuoteInput = Omit<
   Quote,
-  "id" | "createdAt" | "updatedAt" | "acceptedAt" | "acceptedBy"
+  "id" | "createdAt" | "updatedAt" | "acceptedAt" | "acceptedBy" | "status"
 >;
 
 // ═════════════════════════════════════════════════════════════

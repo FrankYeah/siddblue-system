@@ -18,6 +18,7 @@ export async function POST(
     return NextResponse.json({
       quote: {
         id: quote.id,
+        status: quote.status,
         acceptedAt: quote.acceptedAt,
         acceptedBy: quote.acceptedBy,
       },

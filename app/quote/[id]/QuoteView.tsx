@@ -18,7 +18,8 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { PaperPlane, SeagullFlock, CodeBraces } from "@/components/BrandDecor";
-import { itemsTotal, formatNT, formatCurrency } from "@/lib/format";
+import { computeTotals, formatNT, formatCurrency } from "@/lib/format";
+import type { QuoteTotals } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import type { Quote } from "@/lib/types";
 
@@ -44,7 +45,7 @@ export default function QuoteView({ quote }: { quote: Quote }) {
   );
   const [name, setName] = useState("");
   const [accepting, setAccepting] = useState(false);
-  const total = itemsTotal(quote.items);
+  const totals = computeTotals(quote.items, quote.taxInclusive);
 
   function print() {
     window.print();
@@ -225,9 +226,29 @@ export default function QuoteView({ quote }: { quote: Quote }) {
               ))}
             </div>
 
-            <div className="mt-5 flex items-center justify-between rounded-lg bg-brand-gradient px-5 py-4 text-white">
-              <span className="text-sm font-medium">合計</span>
-              <span className="text-2xl font-bold">{formatNT(total)}</span>
+            <div className="mt-5 overflow-hidden rounded-lg">
+              {quote.taxInclusive && (
+                <div className="space-y-1 border border-b-0 border-paper-border bg-paper-block px-5 py-3 text-sm">
+                  <div className="flex items-center justify-between text-paper-muted">
+                    <span>未稅金額</span>
+                    <span className="tabular-nums">
+                      {formatNT(totals.subtotal)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-paper-muted">
+                    <span>營業稅 (5%)</span>
+                    <span className="tabular-nums">{formatNT(totals.tax)}</span>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center justify-between bg-brand-gradient px-5 py-4 text-white">
+                <span className="text-sm font-medium">
+                  {quote.taxInclusive ? "含稅總計" : "合計"}
+                </span>
+                <span className="text-2xl font-bold tabular-nums">
+                  {formatNT(totals.grandTotal)}
+                </span>
+              </div>
             </div>
 
             {quote.summaryText && (
@@ -388,7 +409,7 @@ export default function QuoteView({ quote }: { quote: Quote }) {
       {/* ══════════════ 列印 / PDF：企業級 Excel 嚴謹報價單 ══════════════ */}
       <PrintSheet
         quote={quote}
-        total={total}
+        totals={totals}
         acceptedAt={acceptedAt}
         acceptedBy={acceptedBy}
       />
@@ -401,12 +422,12 @@ export default function QuoteView({ quote }: { quote: Quote }) {
 // ─────────────────────────────────────────────────────────────
 function PrintSheet({
   quote,
-  total,
+  totals,
   acceptedAt,
   acceptedBy,
 }: {
   quote: Quote;
-  total: number;
+  totals: QuoteTotals;
   acceptedAt?: string;
   acceptedBy?: string;
 }) {
@@ -497,14 +518,39 @@ function PrintSheet({
               <td className="num">{formatCurrency(it.amount)}</td>
             </tr>
           ))}
-          <tr>
-            <td className="center" colSpan={4} style={{ fontWeight: 700 }}>
-              合計 (NT$)
-            </td>
-            <td className="num" style={{ fontWeight: 700 }}>
-              {formatCurrency(total)}
-            </td>
-          </tr>
+          {quote.taxInclusive ? (
+            <>
+              <tr>
+                <td className="center" colSpan={4}>
+                  未稅金額 (NT$)
+                </td>
+                <td className="num">{formatCurrency(totals.subtotal)}</td>
+              </tr>
+              <tr>
+                <td className="center" colSpan={4}>
+                  營業稅 5% (NT$)
+                </td>
+                <td className="num">{formatCurrency(totals.tax)}</td>
+              </tr>
+              <tr>
+                <td className="center" colSpan={4} style={{ fontWeight: 700 }}>
+                  含稅總計 (NT$)
+                </td>
+                <td className="num" style={{ fontWeight: 700 }}>
+                  {formatCurrency(totals.grandTotal)}
+                </td>
+              </tr>
+            </>
+          ) : (
+            <tr>
+              <td className="center" colSpan={4} style={{ fontWeight: 700 }}>
+                合計 (NT$)
+              </td>
+              <td className="num" style={{ fontWeight: 700 }}>
+                {formatCurrency(totals.grandTotal)}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
 

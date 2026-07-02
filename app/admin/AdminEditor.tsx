@@ -29,9 +29,38 @@ import {
   DEFAULT_PAYMENT_INFO,
   DEFAULT_SUMMARY_TEXT,
 } from "@/lib/defaults";
-import { itemsTotal, formatNT, quoteToInput } from "@/lib/format";
+import { computeTotals, formatNT, quoteToInput } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
-import type { Quote, QuoteInput, QuoteItem, QuoteSummary } from "@/lib/types";
+import type {
+  Quote,
+  QuoteInput,
+  QuoteItem,
+  QuoteStatus,
+  QuoteSummary,
+} from "@/lib/types";
+
+// 報價單狀態徽章樣式 (草稿=灰 / 已發送=藍 / 已確認=綠)
+const STATUS_ORDER: QuoteStatus[] = ["draft", "sent", "confirmed"];
+const STATUS_META: Record<
+  QuoteStatus,
+  { label: string; chip: string; dot: string }
+> = {
+  draft: {
+    label: "草稿",
+    chip: "bg-gray-100 text-gray-600 ring-1 ring-gray-200",
+    dot: "bg-gray-400",
+  },
+  sent: {
+    label: "已發送",
+    chip: "bg-brand-50 text-brand-700 ring-1 ring-brand-200",
+    dot: "bg-brand-500",
+  },
+  confirmed: {
+    label: "已確認",
+    chip: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+    dot: "bg-emerald-500",
+  },
+};
 
 export default function AdminEditor({
   initialQuotes,
@@ -45,8 +74,12 @@ export default function AdminEditor({
   const [savedLink, setSavedLink] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string>("");
+  const [openStatusId, setOpenStatusId] = useState<string | null>(null);
 
-  const total = useMemo(() => itemsTotal(form.items), [form.items]);
+  const totals = useMemo(
+    () => computeTotals(form.items, form.taxInclusive),
+    [form.items, form.taxInclusive],
+  );
 
   function notify(msg: string) {
     setToast(msg);
@@ -286,6 +319,23 @@ export default function AdminEditor({
     }
   }
 
+  // ── 切換報價單狀態 (列表快速操作，樂觀更新 + PATCH) ──
+  async function changeStatus(id: string, status: QuoteStatus) {
+    setOpenStatusId(null);
+    setQuotes((qs) => qs.map((q) => (q.id === id ? { ...q, status } : q)));
+    try {
+      const res = await fetch(`/api/quotes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error();
+      notify(`已標記為「${STATUS_META[status].label}」`);
+    } catch {
+      notify("狀態更新失敗");
+    }
+  }
+
   // ── 儲存並生成連結 ──
   async function save() {
     if (!form.clientName.trim()) {
@@ -313,8 +363,10 @@ export default function AdminEditor({
           id: quote.id,
           clientName: quote.clientName,
           quoteDate: quote.quoteDate,
-          total: itemsTotal(quote.items),
+          total: computeTotals(quote.items, quote.taxInclusive).grandTotal,
+          status: quote.status,
           updatedAt: quote.updatedAt,
+          acceptedAt: quote.acceptedAt,
         };
         const others = qs.filter((q) => q.id !== quote.id);
         return [summary, ...others];
@@ -332,6 +384,7 @@ export default function AdminEditor({
     const quote: Quote = {
       ...form,
       id: currentId ?? "draft",
+      status: "draft",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -371,62 +424,116 @@ export default function AdminEditor({
                   尚無報價單，右側編輯後按「儲存並生成連結」。
                 </p>
               )}
-              {quotes.map((q) => (
-                <div
-                  key={q.id}
-                  className={`group flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
-                    currentId === q.id
-                      ? "border-brand-500 bg-brand-50"
-                      : "border-transparent hover:bg-paper-block"
-                  }`}
-                >
-                  <button
-                    onClick={() => editQuote(q.id)}
-                    className="min-w-0 flex-1 text-left"
+              {quotes.map((q) => {
+                const meta = STATUS_META[q.status];
+                return (
+                  <div
+                    key={q.id}
+                    className={`group rounded-lg border px-3 py-2.5 text-sm transition ${
+                      currentId === q.id
+                        ? "border-brand-500 bg-brand-50"
+                        : "border-transparent hover:bg-paper-block"
+                    }`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate font-medium text-paper-text">
-                        {q.clientName || "(未命名)"}
-                      </span>
-                      {q.acceptedAt && (
-                        <BadgeCheck
-                          size={14}
-                          className="shrink-0 text-emerald-600"
-                          aria-label="已確認"
-                        />
-                      )}
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        onClick={() => editQuote(q.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate font-medium text-paper-text">
+                            {q.clientName || "(未命名)"}
+                          </span>
+                          {q.acceptedAt && (
+                            <BadgeCheck
+                              size={14}
+                              className="shrink-0 text-emerald-600"
+                              aria-label="已確認"
+                            />
+                          )}
+                        </div>
+                        <div className="text-xs text-paper-muted">
+                          {q.quoteDate} · {formatNT(q.total)}
+                        </div>
+                      </button>
+
+                      {/* 狀態徽章 — 點擊切換 (草稿 / 已發送 / 已確認) */}
+                      <div className="relative shrink-0">
+                        <button
+                          onClick={() =>
+                            setOpenStatusId((cur) => (cur === q.id ? null : q.id))
+                          }
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${meta.chip}`}
+                          title="點擊切換狀態"
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                          {meta.label}
+                          <ChevronDown size={12} />
+                        </button>
+                        {openStatusId === q.id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-20"
+                              onClick={() => setOpenStatusId(null)}
+                            />
+                            <div className="absolute right-0 z-30 mt-1 w-32 overflow-hidden rounded-lg border border-paper-border bg-white py-1 shadow-float">
+                              {STATUS_ORDER.map((s) => (
+                                <button
+                                  key={s}
+                                  onClick={() => changeStatus(q.id, s)}
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-paper-block ${
+                                    q.status === s
+                                      ? "font-semibold text-paper-text"
+                                      : "text-paper-muted"
+                                  }`}
+                                >
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${STATUS_META[s].dot}`}
+                                  />
+                                  {STATUS_META[s].label}
+                                  {q.status === s && (
+                                    <Check
+                                      size={12}
+                                      className="ml-auto text-brand-600"
+                                    />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-xs text-paper-muted">
-                      {q.quoteDate} · {formatNT(q.total)}
+
+                    {/* 操作 (手機常駐顯示，桌機 hover 才出現) */}
+                    <div className="mt-1.5 flex items-center gap-0.5 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+                      <button
+                        onClick={() => duplicateQuote(q.id)}
+                        className="rounded p-2 text-paper-muted hover:text-brand-600"
+                        title="複製為新報價單"
+                      >
+                        <CopyPlus size={15} />
+                      </button>
+                      <a
+                        href={`/quote/${q.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded p-2 text-paper-muted hover:text-brand-600"
+                        title="開啟前台頁"
+                      >
+                        <ExternalLink size={15} />
+                      </a>
+                      <button
+                        onClick={() => removeQuote(q.id)}
+                        className="ml-auto rounded p-2 text-paper-muted hover:text-red-600"
+                        title="刪除"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-                    <button
-                      onClick={() => duplicateQuote(q.id)}
-                      className="rounded p-1 text-paper-muted hover:text-brand-600"
-                      title="複製為新報價單"
-                    >
-                      <CopyPlus size={14} />
-                    </button>
-                    <a
-                      href={`/quote/${q.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded p-1 text-paper-muted hover:text-brand-600"
-                      title="開啟前台頁"
-                    >
-                      <ExternalLink size={14} />
-                    </a>
-                    <button
-                      onClick={() => removeQuote(q.id)}
-                      className="rounded p-1 text-paper-muted hover:text-red-600"
-                      title="刪除"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </aside>
@@ -526,19 +633,68 @@ export default function AdminEditor({
 
           {/* 動態項目表格 */}
           <section className="notion-block">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <h2 className="section-title">
                 <CodeBraces className="text-brand-500" /> 報價項目
               </h2>
-              <div className="text-right">
-                <div className="text-xs text-paper-muted">總計金額</div>
-                <div className="text-xl font-bold text-brand-600">
-                  {formatNT(total)}
+              <div className="sm:min-w-[220px] sm:text-right">
+                {/* 含稅 / 未稅 切換 (預設未稅) */}
+                <div className="mb-2 inline-flex rounded-lg border border-paper-border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setField("taxInclusive", false)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                      !form.taxInclusive
+                        ? "bg-brand-600 text-white shadow-sm"
+                        : "text-paper-muted hover:text-paper-text"
+                    }`}
+                  >
+                    未稅
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setField("taxInclusive", true)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                      form.taxInclusive
+                        ? "bg-brand-600 text-white shadow-sm"
+                        : "text-paper-muted hover:text-paper-text"
+                    }`}
+                  >
+                    含稅 (+5%)
+                  </button>
                 </div>
+
+                {form.taxInclusive ? (
+                  <div className="space-y-0.5 text-sm">
+                    <div className="flex items-center justify-between gap-6 text-paper-muted sm:justify-end">
+                      <span>未稅金額</span>
+                      <span className="tabular-nums">
+                        {formatNT(totals.subtotal)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-6 text-paper-muted sm:justify-end">
+                      <span>營業稅 (5%)</span>
+                      <span className="tabular-nums">{formatNT(totals.tax)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-6 sm:justify-end">
+                      <span className="font-medium text-paper-text">含稅總計</span>
+                      <span className="text-xl font-bold tabular-nums text-brand-600">
+                        {formatNT(totals.grandTotal)}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-xs text-paper-muted">總計金額（未稅）</div>
+                    <div className="text-xl font-bold tabular-nums text-brand-600">
+                      {formatNT(totals.grandTotal)}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full border-separate border-spacing-y-2 text-sm">
                 <thead>
                   <tr className="text-left text-xs text-paper-muted">
@@ -580,6 +736,7 @@ export default function AdminEditor({
                       <td className="px-1">
                         <input
                           type="number"
+                          inputMode="numeric"
                           className="field-input text-right"
                           placeholder="0"
                           value={it.amount || ""}
@@ -619,6 +776,100 @@ export default function AdminEditor({
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* 手機版：卡片式垂直堆疊，避免多欄表格擠壓 */}
+            <div className="space-y-3 md:hidden">
+              {form.items.length === 0 && (
+                <p className="rounded-lg border border-dashed border-paper-border px-3 py-6 text-center text-sm text-paper-muted">
+                  尚無項目，點下方「新增項目」或「帶入預設項目」。
+                </p>
+              )}
+              {form.items.map((it, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border border-paper-border bg-paper-block/40 p-3"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-paper-muted">
+                      項目 {i + 1}
+                    </span>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => moveItem(i, -1)}
+                        disabled={i === 0}
+                        className="rounded p-2 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                        title="上移"
+                      >
+                        <ChevronUp size={16} />
+                      </button>
+                      <button
+                        onClick={() => moveItem(i, 1)}
+                        disabled={i === form.items.length - 1}
+                        className="rounded p-2 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                        title="下移"
+                      >
+                        <ChevronDown size={16} />
+                      </button>
+                      <button
+                        onClick={() => removeItem(i)}
+                        className="rounded p-2 text-paper-muted hover:bg-red-50 hover:text-red-600"
+                        title="刪除項目"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="field-label">功能名稱</label>
+                      <input
+                        className="field-input"
+                        placeholder="功能名稱"
+                        value={it.category}
+                        onChange={(e) => updateItem(i, "category", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label">功能說明</label>
+                      <textarea
+                        className="field-input min-h-[60px] resize-y"
+                        placeholder="功能說明 (可多行)"
+                        value={it.description}
+                        onChange={(e) =>
+                          updateItem(i, "description", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="field-label">工時</label>
+                        <input
+                          className="field-input"
+                          placeholder="3 天"
+                          value={it.duration}
+                          onChange={(e) =>
+                            updateItem(i, "duration", e.target.value)
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className="field-label">費用 (NT$)</label>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          className="field-input text-right"
+                          placeholder="0"
+                          value={it.amount || ""}
+                          onChange={(e) =>
+                            updateItem(i, "amount", e.target.value)
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="mt-2 flex flex-wrap gap-2">
@@ -831,7 +1082,7 @@ export default function AdminEditor({
           </section>
 
           {/* 動作列 */}
-          <section className="notion-block sticky bottom-4 z-10 flex flex-wrap items-center gap-3 shadow-float">
+          <section className="notion-block sticky bottom-20 z-10 flex flex-wrap items-center gap-3 shadow-float sm:bottom-4">
             <button onClick={save} className="btn-primary" disabled={saving}>
               {saving ? (
                 <Loader2 size={16} className="animate-spin" />
