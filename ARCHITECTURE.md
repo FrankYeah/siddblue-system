@@ -1,16 +1,20 @@
 # 系統架構文件 (Architecture)
 
 > 西打藍好內容有限公司 — 報價單與規格生成工具
-> 最後更新：2026-07-02
+> 最後更新：2026-07-04
 
-本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由四個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
+本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由六個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
 
 | 模組 | 用途 | 主要頁面 |
 | --- | --- | --- |
 | 💰 **報價單** | 建立/編輯報價單、產生對外連結、客戶線上確認、匯出 PDF/Excel/CSV | `/admin`（編輯）、`/quote/[id]`（對外） |
+| 💼 **案件管理** | 專案財務：關聯報價單、應收帳款（催款提醒）、合作夥伴費用（外包成本）、稅務代扣 → 自動計算實際淨利 | `/admin`（頁籤） |
 | 📝 **靈感看板** | 四欄看板（靈感池 / 長文電子報 / 短影片 / 已封存），拖曳切換狀態 | `/admin`（頁籤） |
 | ✅ **待辦清單** | 三區（立即處理 / 稍後再說 / 長期要做的事）極簡待辦 | `/admin`（頁籤） |
 | 📚 **知識庫** | 取代 Apple Notes：創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄；支援 Markdown、標籤、諮詢模板，可對外產生唯讀分享連結 | `/admin`（頁籤）、`/shared/note/[token]`（對外） |
+| 🤝 **人脈庫** | Connections CRM：職業別、聯絡方式、熟悉度/能力/價格評級、就業狀態、合作方向分類；支援 CSV 整批匯入 | `/admin`（頁籤） |
+
+另有 🏦 **銀行帳戶快捷面板**（`components/BankInfoPanel.tsx`）常駐後台導覽列：個人／公司帳戶資訊一鍵複製（完整匯款資訊、純數字帳號、統編），複製後顯示 Toast。帳戶資訊為靜態常數（本來就是給客戶匯款用），不經 KV。
 
 ---
 
@@ -52,6 +56,8 @@ siddblue-system/
 │   │   ├── InspirationBoard.tsx  # 📝 靈感看板（@hello-pangea/dnd 拖曳；✨ 矩陣生成按鈕）
 │   │   ├── TodoBoard.tsx         # ✅ 待辦清單
 │   │   ├── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
+│   │   ├── CasesBoard.tsx        # 💼 案件管理（催款提醒 + 應收/應付 + 稅務 → 淨利）
+│   │   ├── ContactsBoard.tsx     # 🤝 人脈庫（CRUD + CSV 匯入；合作方向篩選）
 │   │   └── hooks.ts              # useQueuedSave（防 PUT 亂序）/ useSyncOnFocus（切回分頁重新同步）
 │   │
 │   ├── quote/[id]/               # 對外報價/規格確認頁
@@ -71,12 +77,18 @@ siddblue-system/
 │       ├── todos/route.ts                # GET / PUT 待辦清單（需登入）
 │       ├── notes/route.ts                # GET 列表 / POST 建立筆記（需登入）
 │       ├── notes/[id]/route.ts           # GET / PUT / DELETE 單筆筆記（需登入）
+│       ├── cases/route.ts                # GET 列表 / POST 建立案件（需登入）
+│       ├── cases/[id]/route.ts           # GET / PUT / DELETE 單筆案件（需登入）
+│       ├── contacts/route.ts             # GET 列表 / POST 建立聯絡人（需登入）
+│       ├── contacts/[id]/route.ts        # GET / PUT / DELETE 單筆聯絡人（需登入）
+│       ├── contacts/import/route.ts      # POST 整批匯入聯絡人（CSV，需登入）
 │       ├── matrix/route.ts               # POST ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入）
 │       ├── admin/login/route.ts          # POST 登入 / DELETE 登出
 │       └── test-db/route.ts              # GET KV 連線健檢
 │
 ├── components/
 │   ├── BrandDecor.tsx            # 紙飛機 / 海鷗 / { } 程式碼括號 等品牌 SVG 裝飾
+│   ├── BankInfoPanel.tsx         # 🏦 銀行帳戶快捷面板（一鍵複製 + Toast，靜態常數）
 │   └── Linkify.tsx               # 純文字中的 http(s) 網址轉可點擊連結（React 元素輸出，免疫 XSS）
 │
 ├── lib/                          # 純邏輯層（無 UI）
@@ -85,6 +97,10 @@ siddblue-system/
 │   ├── kv.ts                     # 報價單 KV 存取層（含遷移、狀態、摘要）
 │   ├── workspace-kv.ts           # 靈感看板 / 待辦清單 KV 存取層
 │   ├── notes-kv.ts               # 📚 知識庫 KV 存取層（CRUD + shareToken 反查）
+│   ├── cases-kv.ts               # 💼 案件管理 KV 存取層（CRUD + 索引）
+│   ├── contacts-kv.ts            # 🤝 人脈庫 KV 存取層（CRUD + pipeline 整批匯入）
+│   ├── finance.ts                # 案件財務計算：稅務代扣 + 外包成本 → 淨利（client+server 共用）
+│   ├── contacts-csv.ts           # 人脈庫 CSV 匯入解析（表頭別名對應 + 評級正規化，前端）
 │   ├── markdown.ts               # 安全的白名單 Markdown → HTML（對外分享頁用）
 │   ├── format.ts                 # 金額格式化、營業稅計算（client+server 共用）
 │   ├── normalize.ts              # 輸入清理/補齊 + 舊資料相容
@@ -107,8 +123,8 @@ siddblue-system/
 - **樂觀更新 (Optimistic UI)**：靈感看板與待辦清單在本機先更新畫面，再 `PUT` 整個 board 回 KV，寫入後**不重新讀取**（故 Upstash 讀取複本延遲對使用者無影響）。
 - **防寫入亂序（`app/admin/hooks.ts` → `useQueuedSave`）**：整包覆寫 PUT 若併發送出，HTTP 回應順序不保證，舊請求可能最後落地、以舊蓋新。看板的 persist 一律經佇列：同時最多一個請求在途，期間的變更只保留最新酬載、完成後補送一次（序列化＋合併），連續快速拖曳也不會遺失資料。
 - **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。
-- **後台頁籤**：`AdminWorkspace` 一次掛載四個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。
-- **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加）。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
+- **後台頁籤**：`AdminWorkspace` 一次掛載六個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。手機底部導覽為 6 欄。
+- **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加），案件比對名稱＋備註＋夥伴，人脈比對姓名＋職業＋聯絡方式＋網址＋備註。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
 
 ---
 
@@ -125,6 +141,10 @@ Vercel KV（Upstash Redis）中的所有 key：
 | `note:{id}` | JSON (string) | 單筆知識庫筆記 `Note` | `lib/notes-kv.ts` |
 | `notes:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/notes-kv.ts` |
 | `note:share:{token}` | string | `shareToken → id` 反查對應，供對外分享頁 O(1) 查詢；刪除筆記時一併移除 | `lib/notes-kv.ts` |
+| `case:{id}` | JSON (string) | 單筆案件 `Case`（含夥伴費用陣列） | `lib/cases-kv.ts` |
+| `cases:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/cases-kv.ts` |
+| `contact:{id}` | JSON (string) | 單筆聯絡人 `Contact` | `lib/contacts-kv.ts` |
+| `contacts:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/contacts-kv.ts` |
 | `test:siddblue` | JSON (string) | 連線健檢暫存資料，讀回後即刪除（除非 `?keep=1`） | `app/api/test-db/route.ts` |
 
 > 型別的唯一真實來源是 `lib/types.ts`。以下定義與該檔一致。
@@ -273,6 +293,74 @@ interface Note {
 - **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。
 - 讀取時經 `migrateNote()` 清理/補齊（缺 `shareToken`/`type` 補預設、標籤去重、超長截斷）。
 
+### 3.5 Case（案件與財務管理）
+
+```ts
+type PartnerPayStatus = "unpaid" | "deposit" | "paid"; // 未支付 / 已付訂金 / 已結清
+
+interface PartnerCost {      // 合作夥伴費用 (外包成本，Accounts Payable)
+  id: string;
+  partnerName: string;       // 夥伴名稱
+  role: string;              // 負責項目 (前端、設計…)
+  amount: number;            // 應付金額
+  payStatus: PartnerPayStatus;
+}
+
+interface Case {
+  id: string;                    // nanoid(10)
+  name: string;                  // 專案名稱
+  quoteId: string;               // 關聯報價單 id ("" = 未關聯)
+  totalAmount: number;           // 總應收金額 (AR)
+  receivedAmount: number;        // 已收款
+  withholdBusinessTax: boolean;  // 代扣 5% 營業稅
+  withholdIncomeTax: boolean;    // 代扣 3% 營所稅
+  partnerCosts: PartnerCost[];   // 外包成本 (上限 50 筆)
+  note: string;                  // 備註
+  createdAt: string;             // ISO
+  updatedAt: string;             // ISO
+}
+
+type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
+```
+
+- **逐筆 CRUD + 索引**（同報價單/知識庫）：`case:{id}` + `cases:index`。
+- **關聯報價單為快照**：在後台選擇報價單時把 `clientName`／`total` 帶入 `name`／`totalAmount`，之後可自行修改；報價單後續變動**不會**回寫案件。
+- **衍生值不落地**：未收款餘額、代扣稅額、淨利一律由 `lib/finance.ts` 的 `computeCaseFinance()` 即時計算（見 §5.5），KV 只存輸入值。
+- 金額經 `toAmount()` 清理：取整數、擋負值與超過 10 億的離譜值。
+
+### 3.6 Contact（人脈資料庫）
+
+```ts
+type ContactLevel = "high" | "medium" | "low";        // 高 / 中 / 低
+type ContactStatus = "employed" | "freelance";        // 就業 / 接案
+type CooperationType = "project" | "industry";        // 專案合作(外包、合夥) / 業界合作(網紅、互惠)
+
+interface Contact {
+  id: string;                    // nanoid(10)
+  name: string;                  // 姓名
+  profession: string;            // 職業別 (Notion、前端工程師…)
+  contactInfo: string;           // 聯絡方式 (Line / IG / Email)
+  url: string;                   // 網址
+  familiarity: ContactLevel;     // 熟悉度
+  ability: ContactLevel;         // 能力值
+  price: ContactLevel;           // 價格
+  status: ContactStatus;         // 就業 / 接案
+  cooperationType: CooperationType; // 合作方向
+  note: string;                  // 備註
+  createdAt: string;             // ISO
+  updatedAt: string;             // ISO
+}
+
+type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
+```
+
+- **逐筆 CRUD + 索引**：`contact:{id}` + `contacts:index`。
+- **CSV 匯入**（`lib/contacts-csv.ts` 前端解析 → `POST /api/contacts/import` 整批寫入）：
+  - RFC 4180 風格解析（引號欄位、欄內逗號/換行、`""` 跳脫、BOM）。
+  - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/能力值/價格/狀態/合作方向/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。
+  - 值正規化：`高/中/低`→`high/medium/low`（預設 `medium`）、`就業/接案`→`employed/freelance`（預設 `freelance`）、含「業界/網紅/互惠」→`industry`（預設 `project`）。缺姓名的資料列略過。
+  - 伺服器端以 **KV pipeline** 一次寫入（單批上限 500 筆），依 CSV 順序遞增時間戳確保索引排序穩定。
+
 ---
 
 ## 4. API Endpoints
@@ -297,6 +385,17 @@ interface Note {
 | `GET /api/notes/[id]` | 讀取單筆筆記（後台用） | 需登入 | `getNote()` |
 | `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
 | `DELETE /api/notes/[id]` | 刪除筆記（同時移出 index 與 share 對應） | 需登入 | `deleteNote()` |
+| `GET /api/cases` | 列出所有案件（完整內容，新→舊） | 需登入 | `getAllCases()` |
+| `POST /api/cases` | 建立新案件 | 需登入 | `createCase()` |
+| `GET /api/cases/[id]` | 讀取單筆案件 | 需登入 | `getCase()` |
+| `PUT /api/cases/[id]` | 更新案件（保留 `id`/`createdAt`） | 需登入 | `updateCase()` |
+| `DELETE /api/cases/[id]` | 刪除案件（同時移出 index） | 需登入 | `deleteCase()` |
+| `GET /api/contacts` | 列出所有聯絡人（新→舊） | 需登入 | `getAllContacts()` |
+| `POST /api/contacts` | 建立新聯絡人 | 需登入 | `createContact()` |
+| `GET /api/contacts/[id]` | 讀取單筆聯絡人 | 需登入 | `getContact()` |
+| `PUT /api/contacts/[id]` | 更新聯絡人（保留 `id`/`createdAt`） | 需登入 | `updateContact()` |
+| `DELETE /api/contacts/[id]` | 刪除聯絡人（同時移出 index） | 需登入 | `deleteContact()` |
+| `POST /api/contacts/import` | 整批匯入聯絡人，body `{ contacts: ContactInput[] }`（單批 ≤ 500 筆，KV pipeline 寫入） | 需登入 | `importContacts()` |
 | `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `OPENAI_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/openai，`gpt-4o`） |
 | `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie | 公開 | `verifyPassword()` + `expectedToken()` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
@@ -370,7 +469,31 @@ function computeTotals(items: QuoteItem[], taxInclusive: boolean): QuoteTotals;
 
 > ⚠️ 本機開發預設連的是**線上正式 KV**。跑測試腳本務必自行清除測試資料。
 
-### 5.5 後台驗證（`lib/auth.ts`）
+### 5.5 案件財務計算（`lib/finance.ts`）
+
+`computeCaseFinance()` 為前後端共用的唯一計算入口（案件的衍生金額一律即時計算、不落地）：
+
+```ts
+export const BUSINESS_TAX_RATE = 0.05; // 代扣營業稅
+export const INCOME_TAX_RATE = 0.03;   // 代扣營所稅
+
+interface CaseFinance {
+  totalAmount: number;        // 總應收金額
+  receivedAmount: number;     // 已收款
+  unpaidBalance: number;      // 未收款餘額 = 總應收 − 已收款
+  businessTax: number;        // 開啟時 = round(總應收 × 5%)
+  incomeTax: number;          // 開啟時 = round(總應收 × 3%)
+  taxTotal: number;           // 稅務合計
+  partnerTotal: number;       // 夥伴費用合計
+  partnerOutstanding: number; // 尚未結清的夥伴費用 (payStatus ≠ paid)
+  netProfit: number;          // 實際淨利 = 總應收 − 稅務 − 夥伴費用
+}
+```
+
+- 稅金各自**四捨五入至整數**（與報價單 `computeTotals()` 慣例一致）。
+- 使用點：`CasesBoard` 編輯區的即時財務摘要、左列表徽章、頂部**催款提醒**區塊（列出所有 `unpaidBalance > 0` 的案件，金額大→小）。
+
+### 5.6 後台驗證（`lib/auth.ts`）
 
 以 `ADMIN_PASSWORD` 環境變數作為單一密碼閘門：
 
@@ -410,6 +533,6 @@ function computeTotals(items: QuoteItem[], taxInclusive: boolean): QuoteTotals;
 ## 8. 擴充新功能的建議路徑
 
 - **新增報價單欄位**：改 `lib/types.ts`（`Quote` + 視需要調整 `QuoteInput` 的 `Omit`）→ `lib/normalize.ts`（清理）→ `lib/defaults.ts`（預設值）→ `AdminEditor` 表單 + `QuoteView`/`PrintSheet` 呈現 →（如需相容舊資料）`migrateQuote()`。
-- **新增工作區模組**：仿 `lib/workspace-kv.ts` 建立新的 `workspace:*` blob 與 sanitizer，加一組 `GET/PUT` API，再於 `AdminWorkspace` 增一個頁籤面板（沿用 `hidden` 切換 + 樂觀更新）。
-- **金額/稅務調整**：只改 `lib/format.ts` 的 `computeTotals()` / `TAX_RATE`，各處會一致套用。
+- **新增工作區模組**：整包看板類仿 `lib/workspace-kv.ts`（`workspace:*` blob + `GET/PUT`）；逐筆實體類仿 `lib/cases-kv.ts` / `lib/contacts-kv.ts`（`{entity}:{id}` + sorted set 索引 + CRUD API），再於 `AdminWorkspace` 增一個頁籤面板（沿用 `hidden` 切換）。
+- **金額/稅務調整**：報價單改 `lib/format.ts` 的 `computeTotals()` / `TAX_RATE`；案件淨利改 `lib/finance.ts` 的 `computeCaseFinance()` / 稅率常數，各處會一致套用。
 - **保持慣例**：所有 KV 讀取務必 `noStore()`；寫入類 API 一律先 `isAuthenticated()`；不要把路由改成 Edge runtime。

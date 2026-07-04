@@ -3,44 +3,63 @@
 import { useState } from "react";
 import { LogOut, Search, X } from "lucide-react";
 import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
+import BankInfoPanel from "@/components/BankInfoPanel";
 import { COMPANY_NAME } from "@/lib/defaults";
 import AdminEditor from "./AdminEditor";
 import InspirationBoard from "./InspirationBoard";
 import TodoBoard from "./TodoBoard";
 import NotesBoard from "./NotesBoard";
+import CasesBoard from "./CasesBoard";
+import ContactsBoard from "./ContactsBoard";
 import type {
+  Case,
+  Contact,
   InspirationBoard as InspirationBoardData,
   Note,
   QuoteSummary,
   TodoBoard as TodoBoardData,
 } from "@/lib/types";
 
-type Tab = "quote" | "inspiration" | "todo" | "knowledge";
+type Tab = "quote" | "inspiration" | "todo" | "knowledge" | "cases" | "contacts";
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "quote", icon: "💰", label: "報價系統" },
+  { key: "cases", icon: "💼", label: "案件管理" },
   { key: "inspiration", icon: "📝", label: "寫作靈感" },
   { key: "todo", icon: "✅", label: "待辦清單" },
   { key: "knowledge", icon: "📚", label: "知識庫" },
+  { key: "contacts", icon: "🤝", label: "人脈庫" },
 ];
+
+/** 各頁籤的搜尋提示 (undefined = 該頁籤不支援全域搜尋) */
+const SEARCH_PLACEHOLDER: Partial<Record<Tab, string>> = {
+  inspiration: "搜尋卡片標題或內容…",
+  knowledge: "搜尋筆記標題、內容或標籤…",
+  cases: "搜尋案件名稱、備註或夥伴…",
+  contacts: "搜尋姓名、職業、聯絡方式或備註…",
+};
 
 export default function AdminWorkspace({
   initialQuotes,
   initialInspirations,
   initialTodos,
   initialNotes,
+  initialCases,
+  initialContacts,
   protectedMode,
 }: {
   initialQuotes: QuoteSummary[];
   initialInspirations: InspirationBoardData;
   initialTodos: TodoBoardData;
   initialNotes: Note[];
+  initialCases: Case[];
+  initialContacts: Contact[];
   protectedMode: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("quote");
-  // 全域搜尋：即打即過濾當前頁籤的資料（寫作靈感 / 知識庫）
+  // 全域搜尋：即打即過濾當前頁籤的資料（寫作靈感 / 知識庫 / 案件 / 人脈）
   const [search, setSearch] = useState("");
-  const searchable = tab === "inspiration" || tab === "knowledge";
+  const searchable = Boolean(SEARCH_PLACEHOLDER[tab]);
 
   async function logout() {
     await fetch("/api/admin/login", { method: "DELETE" });
@@ -73,6 +92,9 @@ export default function AdminWorkspace({
             )}
           </div>
 
+          {/* 🏦 銀行帳戶快捷面板（全域常駐，一鍵複製給客戶） */}
+          <BankInfoPanel />
+
           {/* 🔍 全域搜尋框（導覽列下方、頁籤上方；僅支援搜尋的頁籤顯示）
               手機 UX：min-h 44px 觸控高度、text-base(16px) 防 iOS 聚焦自動縮放、w-full 不被擠壓 */}
           {searchable && (
@@ -85,11 +107,7 @@ export default function AdminWorkspace({
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  tab === "knowledge"
-                    ? "搜尋筆記標題、內容或標籤…"
-                    : "搜尋卡片標題或內容…"
-                }
+                placeholder={SEARCH_PLACEHOLDER[tab]}
                 aria-label="全域搜尋"
                 className="min-h-[44px] w-full rounded-xl border border-white/25 bg-white/15 pl-10 pr-11 text-base text-white placeholder-white/60 outline-none backdrop-blur transition focus:border-white/60 focus:bg-white/25"
               />
@@ -132,6 +150,13 @@ export default function AdminWorkspace({
         <div className={tab === "quote" ? "animate-fade-in" : "hidden"}>
           <AdminEditor initialQuotes={initialQuotes} />
         </div>
+        <div className={tab === "cases" ? "animate-fade-in" : "hidden"}>
+          <CasesBoard
+            initialCases={initialCases}
+            quotes={initialQuotes}
+            searchQuery={tab === "cases" ? search : ""}
+          />
+        </div>
         <div className={tab === "inspiration" ? "animate-fade-in" : "hidden"}>
           <InspirationBoard
             initialBoard={initialInspirations}
@@ -147,18 +172,24 @@ export default function AdminWorkspace({
             searchQuery={tab === "knowledge" ? search : ""}
           />
         </div>
+        <div className={tab === "contacts" ? "animate-fade-in" : "hidden"}>
+          <ContactsBoard
+            initialContacts={initialContacts}
+            searchQuery={tab === "contacts" ? search : ""}
+          />
+        </div>
       </main>
 
-      {/* 手機版底部導覽 (Bottom Navigation) */}
+      {/* 手機版底部導覽 (Bottom Navigation)：6 個頁籤，字級縮小避免擠壓 */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
         aria-label="主要功能"
       >
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 text-xs font-medium transition ${
+            className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
               tab === t.key ? "text-brand-600" : "text-paper-muted"
             }`}
             aria-current={tab === t.key ? "page" : undefined}

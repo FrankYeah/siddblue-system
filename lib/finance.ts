@@ -1,0 +1,81 @@
+import type { Case, PartnerCost } from "./types";
+
+// ─────────────────────────────────────────────────────────────
+//  案件財務計算 (client + server 共用，
+//  不得引入 @vercel/kv 等 server-only 模組)
+//
+//  淨利公式：
+//    實際淨利 = 總應收金額 − 代扣稅務 − 所有合作夥伴費用
+//    代扣稅務 = 總應收 × 5% (營業稅，開關) + 總應收 × 3% (營所稅，開關)
+//  稅金各自四捨五入至整數 (與報價單營業稅計算慣例一致)。
+// ─────────────────────────────────────────────────────────────
+
+/** 代扣營業稅率 (5%) */
+export const BUSINESS_TAX_RATE = 0.05;
+/** 代扣營所稅率 (3%) */
+export const INCOME_TAX_RATE = 0.03;
+
+/** 案件財務分解 (由 computeCaseFinance 計算，不落地儲存) */
+export interface CaseFinance {
+  /** 總應收金額 */
+  totalAmount: number;
+  /** 已收款 */
+  receivedAmount: number;
+  /** 未收款餘額 = 總應收 − 已收款 */
+  unpaidBalance: number;
+  /** 代扣 5% 營業稅 (未開啟為 0) */
+  businessTax: number;
+  /** 代扣 3% 營所稅 (未開啟為 0) */
+  incomeTax: number;
+  /** 代扣稅務合計 */
+  taxTotal: number;
+  /** 合作夥伴費用合計 (外包成本) */
+  partnerTotal: number;
+  /** 尚未結清的夥伴費用 (付款狀態非「已結清」的金額加總，供催付參考) */
+  partnerOutstanding: number;
+  /** 實際淨利 = 總應收 − 代扣稅務 − 夥伴費用合計 */
+  netProfit: number;
+}
+
+/** 夥伴費用加總 */
+export function partnerCostsTotal(costs: PartnerCost[]): number {
+  return costs.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+}
+
+/** 依案件欄位計算完整財務分解 (唯一計算入口，前後端一致) */
+export function computeCaseFinance(
+  c: Pick<
+    Case,
+    | "totalAmount"
+    | "receivedAmount"
+    | "withholdBusinessTax"
+    | "withholdIncomeTax"
+    | "partnerCosts"
+  >,
+): CaseFinance {
+  const totalAmount = Number(c.totalAmount) || 0;
+  const receivedAmount = Number(c.receivedAmount) || 0;
+  const businessTax = c.withholdBusinessTax
+    ? Math.round(totalAmount * BUSINESS_TAX_RATE)
+    : 0;
+  const incomeTax = c.withholdIncomeTax
+    ? Math.round(totalAmount * INCOME_TAX_RATE)
+    : 0;
+  const partnerTotal = partnerCostsTotal(c.partnerCosts);
+  const partnerOutstanding = c.partnerCosts.reduce(
+    (sum, p) => sum + (p.payStatus === "paid" ? 0 : Number(p.amount) || 0),
+    0,
+  );
+  const taxTotal = businessTax + incomeTax;
+  return {
+    totalAmount,
+    receivedAmount,
+    unpaidBalance: totalAmount - receivedAmount,
+    businessTax,
+    incomeTax,
+    taxTotal,
+    partnerTotal,
+    partnerOutstanding,
+    netProfit: totalAmount - taxTotal - partnerTotal,
+  };
+}

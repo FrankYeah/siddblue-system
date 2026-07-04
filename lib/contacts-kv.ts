@@ -1,0 +1,201 @@
+import { kv } from "@vercel/kv";
+import { nanoid } from "nanoid";
+import { unstable_noStore as noStore } from "next/cache";
+import type {
+  Contact,
+  ContactInput,
+  ContactLevel,
+  ContactStatus,
+  CooperationType,
+} from "./types";
+
+// ─────────────────────────────────────────────────────────────
+//  人脈資料庫存取層 (Vercel KV)
+//
+//  儲存結構 (仿照 lib/notes-kv.ts)：
+//    contact:{id}      → 單筆聯絡人 (JSON)
+//    contacts:index    → sorted set，member=id，score=updatedAt(ms)
+//                        後台列表用，依更新時間新→舊排序
+//
+//  未設定 KV 環境變數時 (本機開發未接 KV)，自動改用記憶體儲存。
+//  讀取一律 noStore()，避免 Server Component 服務到過期資料。
+// ─────────────────────────────────────────────────────────────
+
+const CONTACT_KEY = (id: string) => `contact:${id}`;
+const CONTACT_INDEX_KEY = "contacts:index";
+
+const KV_ENABLED = Boolean(
+  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
+);
+
+// ── 記憶體後援 (本機無 KV 時使用) ──
+// 掛在 globalThis 上，確保開發模式下 Route Handler 與 Server Component
+// 這些分開打包的模組實例共用同一份資料 (正式環境走 KV，不會用到此後援)。
+const memStore: Map<string, Contact> = ((
+  globalThis as unknown as { __sbContactsMem?: Map<string, Contact> }
+).__sbContactsMem ??= new Map<string, Contact>());
+
+const LEVELS: ContactLevel[] = ["high", "medium", "low"];
+const STATUSES: ContactStatus[] = ["employed", "freelance"];
+const COOPERATION_TYPES: CooperationType[] = ["project", "industry"];
+
+// ── 清理 / 補齊 (防止壞資料，並相容缺欄位的舊資料) ──
+function toLevel(raw: unknown): ContactLevel {
+  return LEVELS.includes(raw as ContactLevel)
+    ? (raw as ContactLevel)
+    : "medium";
+}
+
+function migrateContact(raw: Contact | null): Contact | null {
+  if (!raw) return null;
+  return {
+    id: String(raw.id),
+    name: String(raw.name ?? "").slice(0, 100),
+    profession: String(raw.profession ?? "").slice(0, 200),
+    contactInfo: String(raw.contactInfo ?? "").slice(0, 500),
+    url: String(raw.url ?? "").slice(0, 500),
+    familiarity: toLevel(raw.familiarity),
+    ability: toLevel(raw.ability),
+    price: toLevel(raw.price),
+    status: STATUSES.includes(raw.status) ? raw.status : "freelance",
+    cooperationType: COOPERATION_TYPES.includes(raw.cooperationType)
+      ? raw.cooperationType
+      : "project",
+    note: String(raw.note ?? "").slice(0, 5000),
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    updatedAt: String(raw.updatedAt || new Date().toISOString()),
+  };
+}
+
+/** 僅取表單允許的欄位，並清理內容 */
+function cleanInput(input: ContactInput): ContactInput {
+  return {
+    name: String(input?.name ?? "").slice(0, 100),
+    profession: String(input?.profession ?? "").slice(0, 200),
+    contactInfo: String(input?.contactInfo ?? "").slice(0, 500),
+    url: String(input?.url ?? "").slice(0, 500),
+    familiarity: toLevel(input?.familiarity),
+    ability: toLevel(input?.ability),
+    price: toLevel(input?.price),
+    status: STATUSES.includes(input?.status) ? input.status : "freelance",
+    cooperationType: COOPERATION_TYPES.includes(input?.cooperationType)
+      ? input.cooperationType
+      : "project",
+    note: String(input?.note ?? "").slice(0, 5000),
+  };
+}
+
+/** 建立新聯絡人 */
+export async function createContact(input: ContactInput): Promise<Contact> {
+  const now = new Date().toISOString();
+  const contact: Contact = {
+    ...cleanInput(input),
+    id: nanoid(10),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (KV_ENABLED) {
+    await kv.set(CONTACT_KEY(contact.id), contact);
+    await kv.zadd(CONTACT_INDEX_KEY, { score: Date.now(), member: contact.id });
+  } else {
+    memStore.set(contact.id, contact);
+  }
+  return contact;
+}
+
+/** 整批匯入聯絡人 (CSV 匯入用)，回傳成功建立的筆數 */
+export async function importContacts(
+  inputs: ContactInput[],
+): Promise<Contact[]> {
+  const now = Date.now();
+  const contacts: Contact[] = inputs.map((input, i) => ({
+    ...cleanInput(input),
+    id: nanoid(10),
+    // 依序遞增毫秒，確保 index 排序穩定 (CSV 由上而下 = 新→舊倒序寫入)
+    createdAt: new Date(now + i).toISOString(),
+    updatedAt: new Date(now + i).toISOString(),
+  }));
+
+  if (KV_ENABLED) {
+    // pipeline 一次寫入，避免上百筆時逐筆 round-trip
+    const pipeline = kv.pipeline();
+    contacts.forEach((c, i) => {
+      pipeline.set(CONTACT_KEY(c.id), c);
+      pipeline.zadd(CONTACT_INDEX_KEY, { score: now + i, member: c.id });
+    });
+    await pipeline.exec();
+  } else {
+    contacts.forEach((c) => memStore.set(c.id, c));
+  }
+  return contacts;
+}
+
+/** 讀取單筆聯絡人 */
+export async function getContact(id: string): Promise<Contact | null> {
+  noStore();
+  if (!id) return null;
+  if (KV_ENABLED) {
+    const contact = await kv.get<Contact>(CONTACT_KEY(id));
+    return migrateContact(contact ?? null);
+  }
+  return migrateContact(memStore.get(id) ?? null);
+}
+
+/** 更新聯絡人 (保留 id / createdAt) */
+export async function updateContact(
+  id: string,
+  input: ContactInput,
+): Promise<Contact | null> {
+  const existing = await getContact(id);
+  if (!existing) return null;
+
+  const updated: Contact = {
+    ...existing,
+    ...cleanInput(input),
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (KV_ENABLED) {
+    await kv.set(CONTACT_KEY(id), updated);
+    await kv.zadd(CONTACT_INDEX_KEY, { score: Date.now(), member: id });
+  } else {
+    memStore.set(id, updated);
+  }
+  return updated;
+}
+
+/** 刪除聯絡人 */
+export async function deleteContact(id: string): Promise<boolean> {
+  const existing = await getContact(id);
+  if (!existing) return false;
+
+  if (KV_ENABLED) {
+    await kv.del(CONTACT_KEY(id));
+    await kv.zrem(CONTACT_INDEX_KEY, id);
+  } else {
+    memStore.delete(id);
+  }
+  return true;
+}
+
+/** 取得所有聯絡人 (新 → 舊)，後台初始載入與列表使用 */
+export async function getAllContacts(): Promise<Contact[]> {
+  noStore();
+  if (KV_ENABLED) {
+    const ids = await kv.zrange<string[]>(CONTACT_INDEX_KEY, 0, -1, {
+      rev: true,
+    });
+    if (!ids || ids.length === 0) return [];
+    const contacts = await Promise.all(ids.map((id) => getContact(id)));
+    return contacts.filter((c): c is Contact => Boolean(c));
+  }
+  return Array.from(memStore.values())
+    .map((c) => migrateContact(c))
+    .filter((c): c is Contact => Boolean(c))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export { KV_ENABLED };

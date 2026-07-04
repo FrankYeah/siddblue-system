@@ -207,3 +207,104 @@ export interface NoteInput {
   type: NoteType;
   isShared: boolean;
 }
+
+// ═════════════════════════════════════════════════════════════
+//  案件與財務管理 (Case & Finance Management)
+//  應收帳款 (AR) + 合作夥伴費用 (AP) + 稅務代扣 → 專案淨利
+// ═════════════════════════════════════════════════════════════
+
+/** 合作夥伴款項的付款狀態 */
+export type PartnerPayStatus =
+  | "unpaid" // 未支付
+  | "deposit" // 已付訂金
+  | "paid"; // 已結清
+
+/** 單筆合作夥伴費用 (外包成本，Accounts Payable) */
+export interface PartnerCost {
+  id: string;
+  /** 夥伴名稱 */
+  partnerName: string;
+  /** 負責項目 (如：前端、設計) */
+  role: string;
+  /** 應付金額 */
+  amount: number;
+  /** 付款狀態 */
+  payStatus: PartnerPayStatus;
+}
+
+/** 案件 (專案財務管理的核心實體) */
+export interface Case {
+  /** 唯一識別碼 (nanoid 10) */
+  id: string;
+  /** 專案名稱 */
+  name: string;
+  /** 關聯的報價單 id (空字串 = 未關聯)；關聯時自動帶入名稱與總金額(快照，之後可自行修改) */
+  quoteId: string;
+  /** 總應收金額 (Accounts Receivable) */
+  totalAmount: number;
+  /** 已收款 */
+  receivedAmount: number;
+  /** 代扣 5% 營業稅 */
+  withholdBusinessTax: boolean;
+  /** 代扣 3% 營所稅 */
+  withholdIncomeTax: boolean;
+  /** 合作夥伴費用 (外包成本) */
+  partnerCosts: PartnerCost[];
+  /** 備註 */
+  note: string;
+  /** 建立時間 (ISO 字串) */
+  createdAt: string;
+  /** 最後更新時間 (ISO 字串) */
+  updatedAt: string;
+}
+
+/** 表單輸入 (不含系統欄位 id / createdAt / updatedAt) */
+export type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
+
+// ═════════════════════════════════════════════════════════════
+//  人脈資料庫 (Connections CRM)
+// ═════════════════════════════════════════════════════════════
+
+/** 三段式評級 (熟悉度 / 能力值 / 價格) */
+export type ContactLevel = "high" | "medium" | "low"; // 高 / 中 / 低
+
+/** 就業狀態 */
+export type ContactStatus = "employed" | "freelance"; // 就業 / 接案
+
+/** 合作方向分類 */
+export type CooperationType =
+  | "project" // 專案合作 (外包、合夥)
+  | "industry"; // 業界合作 (網紅、互惠合作)
+
+/** 人脈聯絡人 */
+export interface Contact {
+  /** 唯一識別碼 (nanoid 10) */
+  id: string;
+  /** 姓名 */
+  name: string;
+  /** 職業別 (如：Notion、前端工程師) */
+  profession: string;
+  /** 聯絡方式 (Line / IG / Email) */
+  contactInfo: string;
+  /** 網址 (作品集、社群…) */
+  url: string;
+  /** 熟悉度 */
+  familiarity: ContactLevel;
+  /** 能力值 */
+  ability: ContactLevel;
+  /** 價格 */
+  price: ContactLevel;
+  /** 狀態 (就業 / 接案) */
+  status: ContactStatus;
+  /** 合作方向 (專案合作 / 業界合作) */
+  cooperationType: CooperationType;
+  /** 備註 */
+  note: string;
+  /** 建立時間 (ISO 字串) */
+  createdAt: string;
+  /** 最後更新時間 (ISO 字串) */
+  updatedAt: string;
+}
+
+/** 表單輸入 (不含系統欄位 id / createdAt / updatedAt) */
+export type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;

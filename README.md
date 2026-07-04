@@ -18,13 +18,20 @@
 | `/api/inspirations` | `GET` 讀取靈感看板 / `PUT` 儲存整個看板（需登入） |
 | `/api/todos` | `GET` 讀取待辦清單 / `PUT` 儲存整個清單（需登入） |
 | `/api/notes` `(/[id])` | 📚 知識庫筆記 CRUD（需登入）；`/shared/note/[token]` 為對外唯讀分享頁 |
+| `/api/cases` `(/[id])` | 💼 案件與財務管理 CRUD（需登入） |
+| `/api/contacts` `(/[id])` | 🤝 人脈庫 CRUD（需登入） |
+| `/api/contacts/import` | `POST` 人脈庫 CSV 整批匯入（需登入，單批 ≤ 500 筆） |
 | `/api/matrix` | `POST` ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入 + `OPENAI_API_KEY`） |
 | `/api/admin/login` | `POST` 登入 / `DELETE` 登出 |
 | `/api/test-db` | `GET` Vercel KV 連線健檢（寫入→讀回→比對；`?keep=1` 保留） |
 
 ### 創作者工作區 (Creator Workspace)
-`/admin` 以頁籤切換四個工具（純前端切換、不重整、各自保留狀態）：
+`/admin` 以頁籤切換六個工具（純前端切換、不重整、各自保留狀態）：
 - **💰 報價系統**：原有報價單功能。
+- **💼 案件管理**：專案財務中心——關聯報價單（自動帶入名稱與總金額）、
+  應收帳款（總金額 / 已收款 / 未收款餘額，頂部**催款提醒**列出所有未收款案件）、
+  合作夥伴費用（夥伴 / 負責項目 / 金額 / 未支付・已付訂金・已結清）、
+  代扣 5% 營業稅與 3% 營所稅開關，自動算出**實際淨利 (Net Profit)**。
 - **📝 寫作靈感**：四欄看板（💡靈感池 / 📰長文電子報 / 🎬短影片 / 📦已封存），
   以 `@hello-pangea/dnd` 拖曳切換狀態，點卡片開 Modal 編輯（多行 / 基本 Markdown）；
   已封存欄卡片淡化。每次變更即存回 KV（`workspace:inspirations` 單一 JSON blob）。
@@ -32,8 +39,13 @@
   點「新增」加入、🗑️ 直接刪除，存於 `workspace:todos`。
 - **📚 知識庫**：取代 Apple Notes 的筆記中心（Markdown、標籤、諮詢模板、
   編輯/預覽切換、一鍵開對外唯讀分享連結 `/shared/note/[token]`）。
-- **🔍 全域搜尋框**：導覽列下方的即打即搜（寫作靈感比對標題＋內容、知識庫比對
-  標題＋內容＋標籤）；44px 觸控高度、16px 字級防 iOS 聚焦縮放；搜尋中拖曳自動暫停。
+- **🤝 人脈庫**：Connections CRM——姓名 / 職業別 / 聯絡方式 / 網址 /
+  熟悉度・能力值・價格（高中低）/ 就業・接案 / 合作方向（專案合作・業界合作）/ 備註；
+  支援**匯入 CSV**（第一列表頭、欄位順序不拘，高/中/低與就業/接案自動正規化）。
+- **🏦 銀行資訊快捷面板**：導覽列常駐——個人（台新 812 敦南 0023）與
+  公司（國泰世華 013 基隆 1243 + 統編）帳戶，一鍵複製完整匯款資訊或純數字帳號（Toast 提示）。
+- **🔍 全域搜尋框**：導覽列下方的即打即搜（寫作靈感、知識庫、案件、人脈皆支援）；
+  44px 觸控高度、16px 字級防 iOS 聚焦縮放；搜尋中拖曳自動暫停。
 - **🔗 自動連結化 (Auto-Linkify)**：靈感卡片與筆記內容中的 `http(s)://` 網址
   自動轉為可點擊連結（另開新分頁、品牌色 + hover），分享頁與後台預覽皆適用。
 
@@ -122,8 +134,12 @@ OPENAI_API_KEY="sk-..."
 
 ### 資料儲存結構
 ```
-quote:{id}     → 單筆報價單 (JSON)
-quotes:index   → sorted set，score = 更新時間，供後台列表新→舊排序
+quote:{id}       → 單筆報價單 (JSON)
+quotes:index     → sorted set，score = 更新時間，供後台列表新→舊排序
+note:{id}        → 單筆知識庫筆記；notes:index 同上；note:share:{token} 反查
+case:{id}        → 單筆案件（財務）；cases:index 同上
+contact:{id}     → 單筆人脈聯絡人；contacts:index 同上
+workspace:*      → 靈感看板 / 待辦清單（整包 JSON blob）
 ```
 
 ---
