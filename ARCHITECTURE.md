@@ -47,7 +47,7 @@ siddblue-system/
 │   ├── admin/                    # 後台（創作者工作區）
 │   │   ├── page.tsx              # Server Component：驗證 + 讀 KV（報價/靈感/待辦/筆記）
 │   │   ├── AdminLogin.tsx        # 密碼登入（未通過驗證時顯示）
-│   │   ├── AdminWorkspace.tsx    # 客戶端頁籤外殼（桌機頂部頁籤 / 手機底部導覽）
+│   │   ├── AdminWorkspace.tsx    # 客戶端頁籤外殼（桌機頂部頁籤 / 手機底部導覽）＋ 🔍 全域搜尋框
 │   │   ├── AdminEditor.tsx       # 💰 報價單編輯器（含狀態切換、營業稅切換）
 │   │   ├── InspirationBoard.tsx  # 📝 靈感看板（@hello-pangea/dnd 拖曳；✨ 矩陣生成按鈕）
 │   │   ├── TodoBoard.tsx         # ✅ 待辦清單
@@ -76,7 +76,8 @@ siddblue-system/
 │       └── test-db/route.ts              # GET KV 連線健檢
 │
 ├── components/
-│   └── BrandDecor.tsx            # 紙飛機 / 海鷗 / { } 程式碼括號 等品牌 SVG 裝飾
+│   ├── BrandDecor.tsx            # 紙飛機 / 海鷗 / { } 程式碼括號 等品牌 SVG 裝飾
+│   └── Linkify.tsx               # 純文字中的 http(s) 網址轉可點擊連結（React 元素輸出，免疫 XSS）
 │
 ├── lib/                          # 純邏輯層（無 UI）
 │   ├── types.ts                  # 所有資料型別（Schema 唯一真實來源）
@@ -107,6 +108,7 @@ siddblue-system/
 - **防寫入亂序（`app/admin/hooks.ts` → `useQueuedSave`）**：整包覆寫 PUT 若併發送出，HTTP 回應順序不保證，舊請求可能最後落地、以舊蓋新。看板的 persist 一律經佇列：同時最多一個請求在途，期間的變更只保留最新酬載、完成後補送一次（序列化＋合併），連續快速拖曳也不會遺失資料。
 - **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。
 - **後台頁籤**：`AdminWorkspace` 一次掛載四個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。
+- **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加）。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
 
 ---
 
@@ -268,7 +270,7 @@ interface Note {
 
 - 與報價單相同採**逐筆 CRUD + 索引**：`note:{id}` 存單筆、`notes:index`（Sorted Set）排序、`note:share:{token}` 供對外頁反查。
 - **對外分享**：`/shared/note/[token]` Server Component 以 `getNoteByShareToken()` 反查；找不到或 `isShared === false` 一律 `notFound()`（不洩漏是否存在）。內容經 `lib/markdown.ts` 轉為**白名單 HTML** 後唯讀呈現。
-- **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。
+- **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。
 - 讀取時經 `migrateNote()` 清理/補齊（缺 `shareToken`/`type` 補預設、標籤去重、超長截斷）。
 
 ---

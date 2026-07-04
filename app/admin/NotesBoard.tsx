@@ -8,13 +8,16 @@ import {
   Loader2,
   Copy,
   Check,
+  Eye,
   FileText,
   ArrowLeft,
+  Pencil,
   Save,
   Share2,
   ExternalLink,
   X,
 } from "lucide-react";
+import { renderMarkdown } from "@/lib/markdown";
 import type { Note, NoteType } from "@/lib/types";
 
 // 「載入諮詢模板」填入的 Markdown 結構
@@ -60,8 +63,11 @@ function fmt(iso: string) {
 
 export default function NotesBoard({
   initialNotes,
+  searchQuery = "",
 }: {
   initialNotes: Note[];
+  /** 全域搜尋框（AdminWorkspace）傳入的關鍵字，與列表內搜尋 / Tag 篩選以 AND 疊加 */
+  searchQuery?: string;
 }) {
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -72,6 +78,7 @@ export default function NotesBoard({
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState(false);
+  const [preview, setPreview] = useState(false); // 內容：編輯 ↔ 預覽（網址可點擊）
   const [origin, setOrigin] = useState("");
 
   useEffect(() => setOrigin(window.location.origin), []);
@@ -94,16 +101,18 @@ export default function NotesBoard({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const gq = searchQuery.trim().toLowerCase(); // 全域搜尋框關鍵字
+    const matches = (n: Note, needle: string) =>
+      n.title.toLowerCase().includes(needle) ||
+      n.content.toLowerCase().includes(needle) ||
+      n.tags.some((t) => t.toLowerCase().includes(needle));
     return notes.filter((n) => {
       if (activeTag && !n.tags.includes(activeTag)) return false;
-      if (!q) return true;
-      return (
-        n.title.toLowerCase().includes(q) ||
-        n.content.toLowerCase().includes(q) ||
-        n.tags.some((t) => t.toLowerCase().includes(q))
-      );
+      if (gq && !matches(n, gq)) return false;
+      if (q && !matches(n, q)) return false;
+      return true;
     });
-  }, [notes, query, activeTag]);
+  }, [notes, query, activeTag, searchQuery]);
 
   const dirty = selected
     ? draft.title !== selected.title ||
@@ -386,15 +395,50 @@ export default function NotesBoard({
                 </button>
               </div>
 
-              <label className="field-label">內容（支援 Markdown）</label>
-              <textarea
-                className="field-input min-h-[300px] resize-y font-mono text-sm leading-relaxed"
-                placeholder="以 Markdown 撰寫內容，例如 ## 標題、- 清單、**粗體**…"
-                value={draft.content}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, content: e.target.value }))
-                }
-              />
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-sm font-medium text-paper-muted">
+                  內容（支援 Markdown）
+                </span>
+                <button
+                  onClick={() => setPreview((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-paper-muted transition hover:bg-paper-block hover:text-brand-600"
+                  title={preview ? "回到編輯" : "預覽（網址可點擊）"}
+                >
+                  {preview ? (
+                    <>
+                      <Pencil size={13} /> 編輯
+                    </>
+                  ) : (
+                    <>
+                      <Eye size={13} /> 預覽
+                    </>
+                  )}
+                </button>
+              </div>
+              {preview ? (
+                <div className="min-h-[300px] rounded-lg border border-paper-border bg-paper-block/30 px-4 py-3">
+                  {draft.content.trim() ? (
+                    <div
+                      className="md-content"
+                      // renderMarkdown 為白名單轉換（先 escape、連結 scheme 白名單），可安全注入
+                      dangerouslySetInnerHTML={{
+                        __html: renderMarkdown(draft.content),
+                      }}
+                    />
+                  ) : (
+                    <p className="text-sm text-paper-muted">（沒有內容）</p>
+                  )}
+                </div>
+              ) : (
+                <textarea
+                  className="field-input min-h-[300px] resize-y font-mono text-sm leading-relaxed"
+                  placeholder="以 Markdown 撰寫內容，例如 ## 標題、- 清單、**粗體**…"
+                  value={draft.content}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, content: e.target.value }))
+                  }
+                />
+              )}
 
               <div className="mt-4">
                 <label className="field-label">標籤</label>

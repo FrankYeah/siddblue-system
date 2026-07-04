@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LogOut } from "lucide-react";
+import { LogOut, Search, X } from "lucide-react";
 import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
 import { COMPANY_NAME } from "@/lib/defaults";
 import AdminEditor from "./AdminEditor";
@@ -38,6 +38,9 @@ export default function AdminWorkspace({
   protectedMode: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("quote");
+  // 全域搜尋：即打即過濾當前頁籤的資料（寫作靈感 / 知識庫）
+  const [search, setSearch] = useState("");
+  const searchable = tab === "inspiration" || tab === "knowledge";
 
   async function logout() {
     await fetch("/api/admin/login", { method: "DELETE" });
@@ -70,6 +73,39 @@ export default function AdminWorkspace({
             )}
           </div>
 
+          {/* 🔍 全域搜尋框（導覽列下方、頁籤上方；僅支援搜尋的頁籤顯示）
+              手機 UX：min-h 44px 觸控高度、text-base(16px) 防 iOS 聚焦自動縮放、w-full 不被擠壓 */}
+          {searchable && (
+            <div className="relative mb-5 mt-4 sm:mb-0">
+              <Search
+                size={18}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/60"
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={
+                  tab === "knowledge"
+                    ? "搜尋筆記標題、內容或標籤…"
+                    : "搜尋卡片標題或內容…"
+                }
+                aria-label="全域搜尋"
+                className="min-h-[44px] w-full rounded-xl border border-white/25 bg-white/15 pl-10 pr-11 text-base text-white placeholder-white/60 outline-none backdrop-blur transition focus:border-white/60 focus:bg-white/25"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-white/70 transition hover:bg-white/15 hover:text-white"
+                  title="清除搜尋"
+                  aria-label="清除搜尋"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* 頁籤 (桌機：頂部；手機改用下方底部導覽) */}
           <nav className="mt-5 hidden gap-1 sm:flex">
             {TABS.map((t) => (
@@ -97,13 +133,19 @@ export default function AdminWorkspace({
           <AdminEditor initialQuotes={initialQuotes} />
         </div>
         <div className={tab === "inspiration" ? "animate-fade-in" : "hidden"}>
-          <InspirationBoard initialBoard={initialInspirations} />
+          <InspirationBoard
+            initialBoard={initialInspirations}
+            searchQuery={tab === "inspiration" ? search : ""}
+          />
         </div>
         <div className={tab === "todo" ? "animate-fade-in" : "hidden"}>
           <TodoBoard initialBoard={initialTodos} />
         </div>
         <div className={tab === "knowledge" ? "animate-fade-in" : "hidden"}>
-          <NotesBoard initialNotes={initialNotes} />
+          <NotesBoard
+            initialNotes={initialNotes}
+            searchQuery={tab === "knowledge" ? search : ""}
+          />
         </div>
       </main>
 

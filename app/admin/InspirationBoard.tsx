@@ -8,6 +8,7 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
+import Linkify from "@/components/Linkify";
 import { useQueuedSave, useSyncOnFocus } from "./hooks";
 import type {
   Inspiration,
@@ -49,10 +50,18 @@ function newId() {
 
 export default function InspirationBoard({
   initialBoard,
+  searchQuery = "",
 }: {
   initialBoard: BoardData;
+  /** 全域搜尋框（AdminWorkspace）傳入的關鍵字，即打即過濾 */
+  searchQuery?: string;
 }) {
   const [board, setBoard] = useState<BoardData>(initialBoard);
+  const query = searchQuery.trim().toLowerCase();
+  const searching = query.length > 0;
+  const matchesQuery = (c: Inspiration) =>
+    c.title.toLowerCase().includes(query) ||
+    c.content.toLowerCase().includes(query);
   const [editing, setEditing] = useState<{
     status: InspirationStatus;
     id: string;
@@ -230,6 +239,11 @@ export default function InspirationBoard({
           <p className="text-sm text-paper-muted">
             拖曳卡片切換狀態，點擊卡片可展開編輯內容。
           </p>
+          {searching && (
+            <p className="mt-0.5 text-xs text-amber-600">
+              🔍 搜尋過濾中，拖曳排序暫停；清除搜尋後恢復。
+            </p>
+          )}
         </div>
         {saving && (
           <span className="flex items-center gap-1.5 text-xs text-paper-muted">
@@ -240,7 +254,13 @@ export default function InspirationBoard({
 
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {COLUMNS.map((col) => (
+          {COLUMNS.map((col) => {
+            // 搜尋時只顯示符合的卡片；拖曳同時停用（過濾後的 index 與
+            // 原陣列不對齊，若允許拖曳會把卡片排錯位置）
+            const cards = searching
+              ? board[col.key].filter(matchesQuery)
+              : board[col.key];
+            return (
             <Droppable droppableId={col.key} key={col.key}>
               {(provided, snapshot) => (
                 <div
@@ -255,7 +275,9 @@ export default function InspirationBoard({
                       <div className="text-sm font-semibold text-paper-text">
                         {col.title}
                         <span className="ml-1.5 text-xs font-normal text-paper-muted">
-                          {board[col.key].length}
+                          {searching
+                            ? `${cards.length}/${board[col.key].length}`
+                            : board[col.key].length}
                         </span>
                       </div>
                       <div className="text-[11px] text-paper-muted">{col.hint}</div>
@@ -274,8 +296,13 @@ export default function InspirationBoard({
                     {...provided.droppableProps}
                     className="flex flex-1 flex-col gap-2"
                   >
-                    {board[col.key].map((card, index) => (
-                      <Draggable draggableId={card.id} index={index} key={card.id}>
+                    {cards.map((card, index) => (
+                      <Draggable
+                        draggableId={card.id}
+                        index={index}
+                        key={card.id}
+                        isDragDisabled={searching}
+                      >
                         {(dp, ds) => (
                           // 用 <div> 而非 <button>：@hello-pangea/dnd 不會從互動元素
                           // (button/a/input…) 啟動拖曳，卡片若是 button 會出現抓取游標
@@ -291,7 +318,11 @@ export default function InspirationBoard({
                                 openEditor(col.key, card);
                               }
                             }}
-                            className={`group w-full cursor-grab rounded-lg border border-paper-border bg-white p-3 text-left shadow-sm transition hover:border-brand-300 hover:shadow-card active:cursor-grabbing ${
+                            className={`group w-full rounded-lg border border-paper-border bg-white p-3 text-left shadow-sm transition hover:border-brand-300 hover:shadow-card ${
+                              searching
+                                ? ""
+                                : "cursor-grab active:cursor-grabbing"
+                            } ${
                               ds.isDragging ? "shadow-float ring-2 ring-brand-300" : ""
                             } ${col.key === "archived" ? "opacity-60" : ""}`}
                           >
@@ -302,7 +333,7 @@ export default function InspirationBoard({
                             </div>
                             {card.content && (
                               <p className="mt-1 line-clamp-3 whitespace-pre-line break-words text-xs text-paper-muted">
-                                {card.content}
+                                <Linkify text={card.content} />
                               </p>
                             )}
                             <div className="mt-2 flex items-center justify-between">
@@ -331,7 +362,8 @@ export default function InspirationBoard({
                 </div>
               )}
             </Droppable>
-          ))}
+            );
+          })}
         </div>
       </DragDropContext>
 

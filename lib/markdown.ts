@@ -26,18 +26,44 @@ function sanitizeUrl(url: string): string | null {
   return null;
 }
 
+/** 裸網址結尾的標點（中英文）與跳脫後的引號不視為網址的一部分 */
+function trimBareUrl(url: string): string {
+  let clean = url;
+  for (;;) {
+    const next = clean
+      .replace(/(&quot;|&gt;|&lt;|&amp;)+$/, "")
+      .replace(/[)\]}.,;:!?、。，！？…]+$/, "");
+    if (next === clean) return clean;
+    clean = next;
+  }
+}
+
 /** 對「已 escape、且不含行內碼」的片段套用連結 / 粗體 / 斜體 */
 function applyEmphasis(text: string): string {
   let out = text;
 
-  // 連結 [文字](網址)
+  // 連結：[文字](網址) 與裸網址 (http/https) 以同一個 regex 一次處理，
+  // 避免兩段替換互相干擾（如 markdown 連結括號內的網址被再次連結化）
   out = out.replace(
-    /\[([^\]]+)\]\(([^)\s]+)\)/g,
-    (_m, label: string, url: string) => {
-      const safe = sanitizeUrl(url);
+    /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<]+)/g,
+    (
+      match,
+      label: string | undefined,
+      url: string | undefined,
+      bare: string | undefined,
+    ) => {
+      if (bare !== undefined) {
+        const clean = trimBareUrl(bare);
+        const rest = bare.slice(clean.length);
+        const safe = clean ? sanitizeUrl(clean) : null;
+        return safe
+          ? `<a href="${safe}" target="_blank" rel="noopener noreferrer nofollow">${clean}</a>${rest}`
+          : match;
+      }
+      const safe = sanitizeUrl(url ?? "");
       return safe
         ? `<a href="${safe}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`
-        : label;
+        : (label ?? match);
     },
   );
 
