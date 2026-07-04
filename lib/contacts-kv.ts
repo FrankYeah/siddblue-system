@@ -1,6 +1,7 @@
 import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
 import { unstable_noStore as noStore } from "next/cache";
+import { groupSortContacts } from "./contacts-sort";
 import type {
   Contact,
   ContactInput,
@@ -15,7 +16,10 @@ import type {
 //  儲存結構 (仿照 lib/notes-kv.ts)：
 //    contact:{id}      → 單筆聯絡人 (JSON)
 //    contacts:index    → sorted set，member=id，score=updatedAt(ms)
-//                        後台列表用，依更新時間新→舊排序
+//                        依更新時間新→舊 (資料表的後備排序)
+//    contacts:order    → JSON string[]，手動拖曳後的顯示順序 (id 陣列)；
+//                        不存在 = 未手動排序，改用預設分組排序
+//                        (lib/contacts-sort.ts groupSortContacts)
 //
 //  未設定 KV 環境變數時 (本機開發未接 KV)，自動改用記憶體儲存。
 //  讀取一律 noStore()，避免 Server Component 服務到過期資料。
@@ -23,6 +27,7 @@ import type {
 
 const CONTACT_KEY = (id: string) => `contact:${id}`;
 const CONTACT_INDEX_KEY = "contacts:index";
+const CONTACT_ORDER_KEY = "contacts:order";
 
 const KV_ENABLED = Boolean(
   process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
@@ -34,6 +39,13 @@ const KV_ENABLED = Boolean(
 const memStore: Map<string, Contact> = ((
   globalThis as unknown as { __sbContactsMem?: Map<string, Contact> }
 ).__sbContactsMem ??= new Map<string, Contact>());
+
+// 手動排序的記憶體後援 (同樣掛 globalThis，跨模組實例共用)
+const memOrder = ((
+  globalThis as unknown as {
+    __sbContactsOrderMem?: { value: string[] | null };
+  }
+).__sbContactsOrderMem ??= { value: null });
 
 const LEVELS: ContactLevel[] = ["high", "medium", "low", "unknown"];
 const STATUSES: ContactStatus[] = [
@@ -191,7 +203,7 @@ export async function deleteContact(id: string): Promise<boolean> {
   return true;
 }
 
-/** 取得所有聯絡人 (新 → 舊)，後台初始載入與列表使用 */
+/** 取得所有聯絡人 (依更新時間新 → 舊；不套用手動排序) */
 export async function getAllContacts(): Promise<Contact[]> {
   noStore();
   if (KV_ENABLED) {
@@ -206,6 +218,57 @@ export async function getAllContacts(): Promise<Contact[]> {
     .map((c) => migrateContact(c))
     .filter((c): c is Contact => Boolean(c))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** 讀取手動排序 (id 陣列)；null = 未手動排序 */
+export async function getContactsOrder(): Promise<string[] | null> {
+  noStore();
+  if (KV_ENABLED) {
+    const order = await kv.get<string[]>(CONTACT_ORDER_KEY);
+    return Array.isArray(order) ? order.map(String) : null;
+  }
+  return memOrder.value;
+}
+
+/** 儲存手動排序；傳 null 清除 (回到預設分組排序) */
+export async function saveContactsOrder(
+  order: string[] | null,
+): Promise<void> {
+  if (order === null) {
+    if (KV_ENABLED) await kv.del(CONTACT_ORDER_KEY);
+    else memOrder.value = null;
+    return;
+  }
+  const clean = order
+    .filter((id) => typeof id === "string" && id)
+    .slice(0, 5000)
+    .map(String);
+  if (KV_ENABLED) await kv.set(CONTACT_ORDER_KEY, clean);
+  else memOrder.value = clean;
+}
+
+/**
+ * 資料表檢視：套用手動排序 (有的話)，否則依 合作方向→職業別 分組排序。
+ * 不在手動順序中的 id (匯入/他處新增) 附加在最後。
+ */
+export async function getContactsView(): Promise<{
+  contacts: Contact[];
+  ordered: boolean;
+}> {
+  noStore();
+  const [contacts, order] = await Promise.all([
+    getAllContacts(),
+    getContactsOrder(),
+  ]);
+  if (!order) {
+    return { contacts: groupSortContacts(contacts), ordered: false };
+  }
+  const pos = new Map(order.map((id, i) => [id, i] as const));
+  const inOrder = contacts
+    .filter((c) => pos.has(c.id))
+    .sort((a, b) => pos.get(a.id)! - pos.get(b.id)!);
+  const rest = contacts.filter((c) => !pos.has(c.id));
+  return { contacts: [...inOrder, ...rest], ordered: true };
 }
 
 export { KV_ENABLED };

@@ -46,6 +46,7 @@ export default function AdminWorkspace({
   initialNotes,
   initialCases,
   initialContacts,
+  initialContactsOrdered,
   protectedMode,
 }: {
   initialQuotes: QuoteSummary[];
@@ -54,6 +55,7 @@ export default function AdminWorkspace({
   initialNotes: Note[];
   initialCases: Case[];
   initialContacts: Contact[];
+  initialContactsOrdered: boolean;
   protectedMode: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("quote");
@@ -175,6 +177,7 @@ export default function AdminWorkspace({
         <div className={tab === "contacts" ? "animate-fade-in" : "hidden"}>
           <ContactsBoard
             initialContacts={initialContacts}
+            initialOrdered={initialContactsOrdered}
             searchQuery={tab === "contacts" ? search : ""}
           />
         </div>

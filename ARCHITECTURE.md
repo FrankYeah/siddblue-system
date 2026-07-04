@@ -12,7 +12,7 @@
 | 📝 **靈感看板** | 四欄看板（靈感池 / 長文電子報 / 短影片 / 已封存），拖曳切換狀態 | `/admin`（頁籤） |
 | ✅ **待辦清單** | 三區（立即處理 / 稍後再說 / 長期要做的事）極簡待辦 | `/admin`（頁籤） |
 | 📚 **知識庫** | 取代 Apple Notes：創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄；支援 Markdown、標籤、諮詢模板，可對外產生唯讀分享連結 | `/admin`（頁籤）、`/shared/note/[token]`（對外） |
-| 🤝 **人脈庫** | Connections CRM：職業別、聯絡方式、熟悉度/能力/價格評級、就業狀態、合作方向分類；支援 CSV 整批匯入 | `/admin`（頁籤） |
+| 🤝 **人脈庫** | Connections CRM，**Notion 風格資料表**：點列開 Modal 編輯、拖曳排序（順序持久化）、逐列「＋」插入、職業別/合作方向篩選、預設同職業別分組；支援 CSV 整批匯入 | `/admin`（頁籤） |
 
 另有 🏦 **銀行帳戶快捷面板**（`components/BankInfoPanel.tsx`）常駐後台導覽列：個人／公司帳戶資訊一鍵複製（完整匯款資訊、純數字帳號、統編），複製後顯示 Toast。帳戶資訊為靜態常數（本來就是給客戶匯款用），不經 KV。
 
@@ -57,7 +57,7 @@ siddblue-system/
 │   │   ├── TodoBoard.tsx         # ✅ 待辦清單
 │   │   ├── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
 │   │   ├── CasesBoard.tsx        # 💼 案件管理（催款提醒 + 應收/應付 + 稅務 → 淨利）
-│   │   ├── ContactsBoard.tsx     # 🤝 人脈庫（CRUD + CSV 匯入；合作方向篩選）
+│   │   ├── ContactsBoard.tsx     # 🤝 人脈庫（Notion 風格資料表：dnd 排序 + Modal 編輯 + 逐列插入 + 篩選 + CSV 匯入）
 │   │   └── hooks.ts              # useQueuedSave（防 PUT 亂序）/ useSyncOnFocus（切回分頁重新同步）
 │   │
 │   ├── quote/[id]/               # 對外報價/規格確認頁
@@ -98,7 +98,8 @@ siddblue-system/
 │   ├── workspace-kv.ts           # 靈感看板 / 待辦清單 KV 存取層
 │   ├── notes-kv.ts               # 📚 知識庫 KV 存取層（CRUD + shareToken 反查）
 │   ├── cases-kv.ts               # 💼 案件管理 KV 存取層（CRUD + 索引）
-│   ├── contacts-kv.ts            # 🤝 人脈庫 KV 存取層（CRUD + pipeline 整批匯入）
+│   ├── contacts-kv.ts            # 🤝 人脈庫 KV 存取層（CRUD + pipeline 整批匯入 + 手動排序）
+│   ├── contacts-sort.ts          # 人脈庫預設分組排序 + 職業別多值切分（client+server 共用）
 │   ├── finance.ts                # 案件財務計算：稅務代扣 + 外包成本 → 淨利（client+server 共用）
 │   ├── contacts-csv.ts           # 人脈庫 CSV 匯入解析（表頭別名對應 + 評級正規化，前端）
 │   ├── markdown.ts               # 安全的白名單 Markdown → HTML（對外分享頁用）
@@ -144,7 +145,8 @@ Vercel KV（Upstash Redis）中的所有 key：
 | `case:{id}` | JSON (string) | 單筆案件 `Case`（含夥伴費用陣列） | `lib/cases-kv.ts` |
 | `cases:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/cases-kv.ts` |
 | `contact:{id}` | JSON (string) | 單筆聯絡人 `Contact` | `lib/contacts-kv.ts` |
-| `contacts:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/contacts-kv.ts` |
+| `contacts:index` | Sorted Set | 索引；`member = id`，`score = updatedAt(ms)`（資料表的後備排序） | `lib/contacts-kv.ts` |
+| `contacts:order` | JSON (string[]) | 資料表**手動拖曳後的顯示順序**（id 陣列，整包覆寫）；不存在 = 未手動排序，套用預設分組排序 | `lib/contacts-kv.ts` |
 | `test:siddblue` | JSON (string) | 連線健檢暫存資料，讀回後即刪除（除非 `?keep=1`） | `app/api/test-db/route.ts` |
 
 > 型別的唯一真實來源是 `lib/types.ts`。以下定義與該檔一致。
@@ -360,6 +362,8 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 ```
 
 - **逐筆 CRUD + 索引**：`contact:{id}` + `contacts:index`。
+- **資料表排序（`contacts:order`）**：後台為 Notion 風格資料表（`ContactsBoard`），以 `@hello-pangea/dnd` 拖曳排序。拖曳/逐列插入/刪除後把**整個 id 陣列** `PUT /api/contacts` 覆寫（經 `useQueuedSave` 序列化，不會舊蓋新）。`order: null` 清除手動排序（「重新分組」按鈕）。⚠️ `useQueuedSave` 以 `null` 為佇列空值哨兵，酬載須包成 `{ order }` 物件。
+- **預設分組排序（`lib/contacts-sort.ts` `groupSortContacts`）**：未手動排序時，依 合作方向（專案→業界）→ 職業別 → 姓名 排序，同領域人脈相鄰；不在手動順序中的 id（匯入/他處新增）附加在最後。**篩選/搜尋中拖曳自動停用**（過濾後 index 與原陣列不對齊）。
 - **CSV 匯入**（`lib/contacts-csv.ts` 前端解析 → `POST /api/contacts/import` 整批寫入）：
   - RFC 4180 風格解析（引號欄位、欄內逗號/換行、`""` 跳脫、BOM）。
   - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/喜好度/能力值/價格/狀態/合作方向/匯款資訊/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。
@@ -395,7 +399,8 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 | `GET /api/cases/[id]` | 讀取單筆案件 | 需登入 | `getCase()` |
 | `PUT /api/cases/[id]` | 更新案件（保留 `id`/`createdAt`） | 需登入 | `updateCase()` |
 | `DELETE /api/cases/[id]` | 刪除案件（同時移出 index） | 需登入 | `deleteCase()` |
-| `GET /api/contacts` | 列出所有聯絡人（新→舊） | 需登入 | `getAllContacts()` |
+| `GET /api/contacts` | 列出所有聯絡人（套用手動排序或預設分組），回 `{ contacts, ordered }` | 需登入 | `getContactsView()` |
+| `PUT /api/contacts` | 儲存資料表手動排序，body `{ order: string[] }`；`{ order: null }` 清除 | 需登入 | `saveContactsOrder()` |
 | `POST /api/contacts` | 建立新聯絡人 | 需登入 | `createContact()` |
 | `GET /api/contacts/[id]` | 讀取單筆聯絡人 | 需登入 | `getContact()` |
 | `PUT /api/contacts/[id]` | 更新聯絡人（保留 `id`/`createdAt`） | 需登入 | `updateContact()` |
