@@ -1,7 +1,13 @@
 import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
 import { unstable_noStore as noStore } from "next/cache";
-import type { Case, CaseInput, PartnerCost, PartnerPayStatus } from "./types";
+import type {
+  Case,
+  CaseInput,
+  CaseType,
+  PartnerCost,
+  PartnerPayStatus,
+} from "./types";
 
 // ─────────────────────────────────────────────────────────────
 //  案件與財務管理資料存取層 (Vercel KV)
@@ -33,6 +39,7 @@ const memStore: Map<string, Case> = ((
 ).__sbCasesMem ??= new Map<string, Case>());
 
 const PAY_STATUSES: PartnerPayStatus[] = ["unpaid", "deposit", "paid"];
+const CASE_TYPES: CaseType[] = ["own", "invoice"];
 
 // ── 清理 / 補齊 (防止壞資料，並相容缺欄位的舊資料) ──
 function toAmount(raw: unknown): number {
@@ -60,14 +67,20 @@ function sanitizePartnerCosts(raw: unknown): PartnerCost[] {
 
 function migrateCase(raw: Case | null): Case | null {
   if (!raw) return null;
+  // 舊資料無 caseType → 視為「我接的案子」；own 型不該有稅務代扣
+  const caseType: CaseType = CASE_TYPES.includes(raw.caseType)
+    ? raw.caseType
+    : "own";
+  const isInvoice = caseType === "invoice";
   return {
     id: String(raw.id),
     name: String(raw.name ?? "").slice(0, 300),
+    caseType,
     quoteId: String(raw.quoteId ?? ""),
     totalAmount: toAmount(raw.totalAmount),
     receivedAmount: toAmount(raw.receivedAmount),
-    withholdBusinessTax: Boolean(raw.withholdBusinessTax),
-    withholdIncomeTax: Boolean(raw.withholdIncomeTax),
+    withholdBusinessTax: isInvoice && Boolean(raw.withholdBusinessTax),
+    withholdIncomeTax: isInvoice && Boolean(raw.withholdIncomeTax),
     partnerCosts: sanitizePartnerCosts(raw.partnerCosts),
     note: String(raw.note ?? "").slice(0, 5000),
     createdAt: String(raw.createdAt || new Date().toISOString()),
@@ -77,13 +90,19 @@ function migrateCase(raw: Case | null): Case | null {
 
 /** 僅取表單允許的欄位，並清理內容 */
 function cleanInput(input: CaseInput): CaseInput {
+  const caseType: CaseType = CASE_TYPES.includes(input?.caseType)
+    ? input.caseType
+    : "own";
+  const isInvoice = caseType === "invoice";
   return {
     name: String(input?.name ?? "").slice(0, 300),
+    caseType,
     quoteId: String(input?.quoteId ?? ""),
     totalAmount: toAmount(input?.totalAmount),
     receivedAmount: toAmount(input?.receivedAmount),
-    withholdBusinessTax: Boolean(input?.withholdBusinessTax),
-    withholdIncomeTax: Boolean(input?.withholdIncomeTax),
+    // 稅務代扣只屬於「幫朋友開發票」型；own 型一律 false
+    withholdBusinessTax: isInvoice && Boolean(input?.withholdBusinessTax),
+    withholdIncomeTax: isInvoice && Boolean(input?.withholdIncomeTax),
     partnerCosts: sanitizePartnerCosts(input?.partnerCosts),
     note: String(input?.note ?? "").slice(0, 5000),
   };

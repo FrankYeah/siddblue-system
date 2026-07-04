@@ -298,6 +298,8 @@ interface Note {
 ### 3.5 Case（案件與財務管理）
 
 ```ts
+type CaseType = "own" | "invoice"; // 我接的案子 / 幫朋友開發票
+
 type PartnerPayStatus = "unpaid" | "deposit" | "paid"; // 未支付 / 已付訂金 / 已結清
 
 interface PartnerCost {      // 合作夥伴費用 (外包成本，Accounts Payable)
@@ -312,6 +314,7 @@ interface PartnerCost {      // 合作夥伴費用 (外包成本，Accounts Paya
 interface Case {
   id: string;                    // nanoid(10)
   name: string;                  // 專案名稱
+  caseType: CaseType;            // 案件型態；舊資料遷移預設 "own"
   quoteId: string;               // 關聯報價單 id ("" = 未關聯)
   totalAmount: number;           // 總應收金額 (AR)
   receivedAmount: number;        // 已收款
@@ -327,6 +330,8 @@ type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
 ```
 
 - **逐筆 CRUD + 索引**（同報價單/知識庫）：`case:{id}` + `cases:index`。
+- **案件型態（caseType）**：新增案件時先選「💼 我接的案子」或「🧾 幫朋友開發票」。**稅務代扣（5% 營業稅、代收代扣 3% 營所稅）只屬於代開發票型**——own 型 UI 不顯示且 `cleanInput()`/`migrateCase()` 一律強制兩旗標為 `false`（資料層保證一致）；切成 invoice 時預設兩項開啟（可取消）。舊資料遷移為 `own`。
+- **夥伴名稱串接人脈庫**：外包成本的「夥伴名稱」輸入框掛原生 `<datalist>`（人脈庫全部聯絡人，仍可自由填寫）；名稱與聯絡人**完全同名**時，該列自動帶出人脈庫的匯款資訊（無則顯示聯絡方式），付款免切頁查找。
 - **關聯報價單為快照**：在後台選擇報價單時把 `clientName`／`total` 帶入 `name`／`totalAmount`，之後可自行修改；報價單後續變動**不會**回寫案件。
 - **衍生值不落地**：未收款餘額、代扣稅額、淨利一律由 `lib/finance.ts` 的 `computeCaseFinance()` 即時計算（見 §5.5），KV 只存輸入值。
 - 金額經 `toAmount()` 清理：取整數、擋負值與超過 10 億的離譜值。
@@ -365,6 +370,8 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 - **資料表排序（`contacts:order`）**：後台為 Notion 風格資料表（`ContactsBoard`），以 `@hello-pangea/dnd` 拖曳排序。拖曳/逐列插入/刪除後把**整個 id 陣列** `PUT /api/contacts` 覆寫（經 `useQueuedSave` 序列化，不會舊蓋新）。`order: null` 清除手動排序（「重新分組」按鈕）。⚠️ `useQueuedSave` 以 `null` 為佇列空值哨兵，酬載須包成 `{ order }` 物件。
 - **預設分組排序（`lib/contacts-sort.ts` `groupSortContacts`）**：未手動排序時，依 合作方向（專案→業界）→ 職業別 → 姓名 排序，同領域人脈相鄰；不在手動順序中的 id（匯入/他處新增）附加在最後。**篩選/搜尋中拖曳自動停用**（過濾後 index 與原陣列不對齊）。
 - **點值即篩選 (click-to-filter)**：資料表每列的 職業別 chip／合作方向徽章／狀態／熟悉・能力・價格徽章都可點擊，點一下套用該值篩選（篩選列同步、可疊加），再點一次或按「清除篩選」取消；點擊經 `stopPropagation`，不會誤開該列的編輯 Modal。**備註**直接顯示於資料表（`line-clamp-2`，完整內容進 Modal）。
+- **職業別彩色標籤**（`buildProfessionColorMap`）：獨特標籤依 zh-Hant 排序後**循環指派 12 色調色盤**——同標籤永遠同色、分組排序下相鄰職業必不同色（雜湊取色會撞色，僅作為未入表新標籤的後備）。編輯 Modal 的職業別為**下拉多選**（勾選既有標籤＋輸入新增），底層仍以逗號串接存於 `profession` 字串，完全相容 CSV 匯入與舊資料。
+- **網址欄**：不顯示網址全文，只列**可點擊圖示**（前 2 個連結 + 「+N」溢出提示，`stopPropagation` 不觸發列編輯）。
 - **CSV 匯入**（`lib/contacts-csv.ts` 前端解析 → `POST /api/contacts/import` 整批寫入）：
   - RFC 4180 風格解析（引號欄位、欄內逗號/換行、`""` 跳脫、BOM）。
   - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/喜好度/能力值/價格/狀態/合作方向/匯款資訊/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。

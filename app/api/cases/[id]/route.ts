@@ -29,6 +29,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const input = (await req.json()) as Partial<CaseInput>;
     const record = await updateCase(params.id, {
       name: input?.name ?? "",
+      caseType: input?.caseType ?? "own",
       quoteId: input?.quoteId ?? "",
       totalAmount: input?.totalAmount ?? 0,
       receivedAmount: input?.receivedAmount ?? 0,

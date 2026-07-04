@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     const input = (await req.json()) as Partial<CaseInput>;
     const record = await createCase({
       name: input?.name ?? "",
+      caseType: input?.caseType ?? "own",
       quoteId: input?.quoteId ?? "",
       totalAmount: input?.totalAmount ?? 0,
       receivedAmount: input?.receivedAmount ?? 0,

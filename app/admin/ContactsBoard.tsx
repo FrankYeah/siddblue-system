@@ -18,9 +18,16 @@ import {
   X,
   GripVertical,
   RotateCcw,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { parseContactsCsv } from "@/lib/contacts-csv";
-import { groupSortContacts, professionTokens } from "@/lib/contacts-sort";
+import {
+  groupSortContacts,
+  professionTokens,
+  professionColor,
+  buildProfessionColorMap,
+} from "@/lib/contacts-sort";
 import { useQueuedSave } from "./hooks";
 import type {
   Contact,
@@ -87,9 +94,43 @@ const COOP_META: Record<
 };
 
 /** 資料表欄位樣板 (表頭與每一列共用，確保對齊)：
-    ⠿ / 姓名 / 職業別 / 合作方向 / 狀態 / 熟悉 / 能力 / 價格 / 備註 / ＋ */
+    ⠿ / 姓名 / 職業別 / 合作方向 / 狀態 / 熟悉 / 能力 / 價格 / 網址 / 備註 / ＋ */
 const GRID =
-  "grid grid-cols-[30px_minmax(100px,1.1fr)_minmax(130px,1.4fr)_96px_56px_48px_48px_48px_minmax(170px,1.9fr)_40px] items-center gap-x-2";
+  "grid grid-cols-[30px_minmax(100px,1.1fr)_minmax(130px,1.4fr)_96px_56px_48px_48px_48px_60px_minmax(160px,1.8fr)_40px] items-center gap-x-2";
+
+/** 網址欄：只列可點擊的連結圖示，不顯示網址全文 */
+function UrlLinks({ raw }: { raw: string }) {
+  const urls = raw.match(/https?:\/\/[^\s，、"']+/g) ?? [];
+  if (urls.length === 0) {
+    return <span className="text-xs text-paper-muted/60">–</span>;
+  }
+  return (
+    <span className="flex items-center">
+      {urls.slice(0, 2).map((u, i) => (
+        <a
+          key={i}
+          href={u}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          title={u}
+          className="rounded p-1 text-brand-500 transition hover:bg-brand-50 hover:text-brand-700"
+          aria-label={`開啟網址 ${u}`}
+        >
+          <ExternalLink size={14} />
+        </a>
+      ))}
+      {urls.length > 2 && (
+        <span
+          className="text-[10px] text-paper-muted"
+          title={urls.slice(2).join("\n")}
+        >
+          +{urls.length - 2}
+        </span>
+      )}
+    </span>
+  );
+}
 
 /** 評級欄位的顯示名稱 (點徽章篩選時的提示用) */
 const LEVEL_FIELD_LABEL = {
@@ -153,6 +194,9 @@ export default function ContactsBoard({
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  // Modal 內的職業別多選下拉
+  const [profMenuOpen, setProfMenuOpen] = useState(false);
+  const [newProf, setNewProf] = useState("");
 
   function flash(msg: string) {
     setToast(msg);
@@ -204,6 +248,13 @@ export default function ContactsBoard({
       a[0].localeCompare(b[0], "zh-Hant"),
     );
   }, [contacts]);
+
+  // 職業別 → 顏色 (排序循環指派，相鄰職業必不同色；新標籤後備雜湊取色)
+  const profColorMap = useMemo(
+    () => buildProfessionColorMap(professions.map(([t]) => t)),
+    [professions],
+  );
+  const colorOf = (t: string) => profColorMap.get(t) ?? professionColor(t);
 
   /** 本地篩選 (不含全域搜尋)，「清除篩選」按鈕只清這些 */
   const localFiltering =
@@ -293,12 +344,40 @@ export default function ContactsBoard({
 
   function openEdit(c: Contact) {
     setDraft(contactToDraft(c));
+    setProfMenuOpen(false);
+    setNewProf("");
     setModal({ mode: "edit", id: c.id });
   }
 
   function openCreate(afterId: string | null) {
     setDraft(EMPTY_DRAFT);
+    setProfMenuOpen(false);
+    setNewProf("");
     setModal({ mode: "create", afterId });
+  }
+
+  // ── 職業別多選 (值仍以逗號串接存於 profession 字串，相容 CSV/舊資料) ──
+  const selectedProfs = professionTokens(draft.profession);
+  const menuTokens = (() => {
+    const s = new Set(professions.map(([t]) => t));
+    selectedProfs.forEach((t) => s.add(t));
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  })();
+
+  function toggleProfToken(t: string) {
+    const cur = professionTokens(draft.profession);
+    const next = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t];
+    setDraft((d) => ({ ...d, profession: next.join(", ") }));
+  }
+
+  function addNewProf() {
+    const t = newProf.trim();
+    if (!t) return;
+    setNewProf("");
+    const cur = professionTokens(draft.profession);
+    if (!cur.includes(t)) {
+      setDraft((d) => ({ ...d, profession: [...cur, t].join(", ") }));
+    }
   }
 
   function closeModal(force = false) {
@@ -567,7 +646,7 @@ export default function ContactsBoard({
 
       {/* ── 資料表 (手機橫向滾動) ── */}
       <div className="overflow-x-auto rounded-xl border border-paper-border bg-white">
-        <div className="min-w-[940px]">
+        <div className="min-w-[1000px]">
           {/* 表頭 */}
           <div
             className={`${GRID} border-b border-paper-border bg-paper-block/50 px-2 py-2 text-xs font-medium text-paper-muted`}
@@ -580,6 +659,7 @@ export default function ContactsBoard({
             <span className="text-center">熟悉</span>
             <span className="text-center">能力</span>
             <span className="text-center">價格</span>
+            <span>網址</span>
             <span>備註</span>
             <span />
           </div>
@@ -651,7 +731,7 @@ export default function ContactsBoard({
                                     e.stopPropagation();
                                     toggleProf(t);
                                   }}
-                                  className={`rounded bg-paper-block px-1.5 py-0.5 text-[11px] text-paper-muted transition hover:bg-paper-border hover:text-paper-text ${
+                                  className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition hover:brightness-95 ${colorOf(t)} ${
                                     profFilter === t
                                       ? "ring-1 ring-brand-500"
                                       : ""
@@ -727,6 +807,9 @@ export default function ContactsBoard({
                               </span>
                             ),
                           )}
+
+                          {/* 網址：只列可點擊圖示 */}
+                          <UrlLinks raw={c.url} />
 
                           {/* 備註：直接呈現，最多兩行 (完整內容進列點開的 Modal) */}
                           <span
@@ -807,15 +890,103 @@ export default function ContactsBoard({
                 />
               </div>
               <div>
-                <label className="field-label">職業別（逗號分隔可多個）</label>
-                <input
-                  className="field-input"
-                  placeholder="如：Notion, 網站設計師"
-                  value={draft.profession}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, profession: e.target.value }))
-                  }
-                />
+                <label className="field-label">職業別（可多選）</label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setProfMenuOpen((v) => !v)}
+                    aria-expanded={profMenuOpen}
+                    className="field-input flex min-h-[42px] w-full flex-wrap items-center gap-1 text-left"
+                  >
+                    {selectedProfs.length === 0 ? (
+                      <span className="text-paper-muted">選擇職業別…</span>
+                    ) : (
+                      selectedProfs.map((t) => (
+                        <span
+                          key={t}
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${colorOf(t)}`}
+                        >
+                          {t}
+                        </span>
+                      ))
+                    )}
+                    <ChevronDown
+                      size={14}
+                      className={`ml-auto shrink-0 text-paper-muted transition-transform ${
+                        profMenuOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {profMenuOpen && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-paper-border bg-white p-2 shadow-float">
+                      <div className="max-h-44 overflow-y-auto">
+                        {menuTokens.length === 0 && (
+                          <p className="px-2 py-1.5 text-xs text-paper-muted">
+                            尚無職業別，於下方輸入新增。
+                          </p>
+                        )}
+                        {menuTokens.map((t) => {
+                          const on = selectedProfs.includes(t);
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => toggleProfToken(t)}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-paper-block"
+                            >
+                              <span
+                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
+                                  on
+                                    ? "border-brand-600 bg-brand-600 text-white"
+                                    : "border-paper-border"
+                                }`}
+                              >
+                                {on && <Check size={11} />}
+                              </span>
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${colorOf(t)}`}
+                              >
+                                {t}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-1 flex gap-1.5 border-t border-paper-border pt-2">
+                        <input
+                          value={newProf}
+                          onChange={(e) => setNewProf(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addNewProf();
+                            }
+                          }}
+                          placeholder="新增職業別後按 Enter…"
+                          className="field-input min-w-0 flex-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={addNewProf}
+                          className="btn-ghost shrink-0 px-2.5"
+                          title="加入這個職業別"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      <div className="mt-1.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setProfMenuOpen(false)}
+                          className="rounded-md px-2.5 py-1 text-xs font-medium text-brand-600 transition hover:bg-brand-50"
+                        >
+                          完成
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="field-label">聯絡方式 (Line / IG / Email)</label>

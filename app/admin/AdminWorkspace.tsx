@@ -156,6 +156,7 @@ export default function AdminWorkspace({
           <CasesBoard
             initialCases={initialCases}
             quotes={initialQuotes}
+            contacts={initialContacts}
             searchQuery={tab === "cases" ? search : ""}
           />
         </div>

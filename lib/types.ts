@@ -213,6 +213,11 @@ export interface NoteInput {
 //  應收帳款 (AR) + 合作夥伴費用 (AP) + 稅務代扣 → 專案淨利
 // ═════════════════════════════════════════════════════════════
 
+/** 案件型態：自己接的案 / 幫朋友開發票 (代開發票才有稅務代扣) */
+export type CaseType =
+  | "own" // 我接的案子
+  | "invoice"; // 幫朋友開發票
+
 /** 合作夥伴款項的付款狀態 */
 export type PartnerPayStatus =
   | "unpaid" // 未支付
@@ -240,15 +245,17 @@ export interface Case {
   id: string;
   /** 專案名稱 */
   name: string;
+  /** 案件型態 (我接的案子 / 幫朋友開發票)；只有代開發票才有稅務代扣 */
+  caseType: CaseType;
   /** 關聯的報價單 id (空字串 = 未關聯)；關聯時自動帶入名稱與總金額(快照，之後可自行修改) */
   quoteId: string;
   /** 總應收金額 (Accounts Receivable) */
   totalAmount: number;
   /** 已收款 */
   receivedAmount: number;
-  /** 代扣 5% 營業稅 */
+  /** 代扣 5% 營業稅 (僅 caseType = invoice) */
   withholdBusinessTax: boolean;
-  /** 代扣 3% 營所稅 */
+  /** 代收代扣 3% 營所稅 (僅 caseType = invoice) */
   withholdIncomeTax: boolean;
   /** 合作夥伴費用 (外包成本) */
   partnerCosts: PartnerCost[];

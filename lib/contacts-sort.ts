@@ -34,3 +34,48 @@ export function professionTokens(profession: string): string[] {
     .map((t) => t.trim())
     .filter(Boolean);
 }
+
+/** 職業別標籤調色盤 (Tailwind class 需為完整字面值，JIT 才掃得到) */
+const PROFESSION_PALETTE = [
+  "bg-sky-100 text-sky-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-violet-100 text-violet-700",
+  "bg-lime-100 text-lime-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-fuchsia-100 text-fuchsia-700",
+  "bg-orange-100 text-orange-700",
+  "bg-teal-100 text-teal-700",
+  "bg-indigo-100 text-indigo-700",
+  "bg-pink-100 text-pink-700",
+];
+
+/**
+ * 後備取色：字串雜湊 (供尚未進到色表的新標籤使用)。
+ */
+export function professionColor(token: string): string {
+  let h = 0;
+  for (let i = 0; i < token.length; i++) {
+    h = (h * 31 + token.charCodeAt(i)) >>> 0;
+  }
+  return PROFESSION_PALETTE[h % PROFESSION_PALETTE.length];
+}
+
+/**
+ * 依「排序後的獨特標籤」循環指派調色盤：
+ * 相鄰的職業別 (= 分組排序後相鄰的群) 必為不同色，辨識度最高；
+ * 雜湊取色會撞色，故以此為主、雜湊為後備。
+ */
+export function buildProfessionColorMap(
+  tokens: string[],
+): Map<string, string> {
+  const sorted = Array.from(new Set(tokens)).sort((a, b) =>
+    a.localeCompare(b, "zh-Hant"),
+  );
+  const map = new Map<string, string>();
+  sorted.forEach((t, i) =>
+    map.set(t, PROFESSION_PALETTE[i % PROFESSION_PALETTE.length]),
+  );
+  return map;
+}

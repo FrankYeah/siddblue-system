@@ -18,6 +18,8 @@ import { formatNT } from "@/lib/format";
 import type {
   Case,
   CaseInput,
+  CaseType,
+  Contact,
   PartnerPayStatus,
   QuoteSummary,
 } from "@/lib/types";
@@ -30,6 +32,7 @@ import type {
 
 const EMPTY_DRAFT: CaseInput = {
   name: "",
+  caseType: "own",
   quoteId: "",
   totalAmount: 0,
   receivedAmount: 0,
@@ -37,6 +40,14 @@ const EMPTY_DRAFT: CaseInput = {
   withholdIncomeTax: false,
   partnerCosts: [],
   note: "",
+};
+
+const CASE_TYPE_META: Record<CaseType, { label: string; hint: string }> = {
+  own: { label: "💼 我接的案子", hint: "一般接案，無稅務代扣" },
+  invoice: {
+    label: "🧾 幫朋友開發票",
+    hint: "代開發票：代扣 5% 營業稅、代收代扣 3% 營所稅",
+  },
 };
 
 const PAY_STATUS_META: Record<
@@ -62,6 +73,7 @@ function fmt(iso: string) {
 function caseToDraft(c: Case): CaseInput {
   return {
     name: c.name,
+    caseType: c.caseType,
     quoteId: c.quoteId,
     totalAmount: c.totalAmount,
     receivedAmount: c.receivedAmount,
@@ -75,11 +87,14 @@ function caseToDraft(c: Case): CaseInput {
 export default function CasesBoard({
   initialCases,
   quotes,
+  contacts,
   searchQuery = "",
 }: {
   initialCases: Case[];
   /** 供「關聯報價單」下拉選擇 (自動帶入名稱與總金額) */
   quotes: QuoteSummary[];
+  /** 🤝 人脈庫聯絡人：夥伴名稱自動建議 + 帶出匯款資訊 */
+  contacts: Contact[];
   /** 全域搜尋框（AdminWorkspace）傳入的關鍵字 */
   searchQuery?: string;
 }) {
@@ -87,7 +102,15 @@ export default function CasesBoard({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CaseInput>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
+  const [addMenu, setAddMenu] = useState(false);
   const [toast, setToast] = useState("");
+
+  /** 夥伴名稱 → 人脈庫聯絡人 (完全同名才視為對應) */
+  function contactByName(name: string): Contact | undefined {
+    const n = name.trim();
+    if (!n) return undefined;
+    return contacts.find((ct) => ct.name === n);
+  }
 
   function flash(msg: string) {
     setToast(msg);
@@ -133,13 +156,19 @@ export default function CasesBoard({
     setDraft(caseToDraft(c));
   }
 
-  async function newCase() {
+  async function newCase(type: CaseType) {
     setSaving(true);
     try {
       const res = await fetch("/api/cases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(EMPTY_DRAFT),
+        body: JSON.stringify({
+          ...EMPTY_DRAFT,
+          caseType: type,
+          // 代開發票預設開啟兩項代扣 (可再取消)；自接案無稅務代扣
+          withholdBusinessTax: type === "invoice",
+          withholdIncomeTax: type === "invoice",
+        }),
       });
       if (!res.ok) throw new Error();
       const { case: record } = (await res.json()) as { case: Case };
@@ -187,6 +216,19 @@ export default function CasesBoard({
     } finally {
       setSaving(false);
     }
+  }
+
+  /** 切換案件型態：自接案 ↔ 代開發票 (稅務代扣只屬於代開發票) */
+  function setCaseType(t: CaseType) {
+    setDraft((d) => {
+      if (d.caseType === t) return d;
+      return {
+        ...d,
+        caseType: t,
+        withholdBusinessTax: t === "invoice",
+        withholdIncomeTax: t === "invoice",
+      };
+    });
   }
 
   /** 關聯報價單：自動帶入專案名稱與總金額 (快照，可再修改) */
@@ -302,13 +344,38 @@ export default function CasesBoard({
             <span className="text-sm text-paper-muted">
               共 {filtered.length} 個案件
             </span>
-            <button
-              onClick={newCase}
-              className="btn-primary shrink-0 px-3"
-              title="新增案件"
-            >
-              <Plus size={18} />
-            </button>
+            {/* 新增時先選型態：自接案 / 代開發票 (決定是否有稅務代扣) */}
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setAddMenu((v) => !v)}
+                aria-expanded={addMenu}
+                className="btn-primary px-3"
+                title="新增案件"
+              >
+                <Plus size={18} />
+              </button>
+              {addMenu && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-paper-border bg-white p-1 shadow-float">
+                  {(Object.keys(CASE_TYPE_META) as CaseType[]).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setAddMenu(false);
+                        newCase(t);
+                      }}
+                      className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-paper-block"
+                    >
+                      <span className="block text-sm font-medium text-paper-text">
+                        {CASE_TYPE_META[t].label}
+                      </span>
+                      <span className="block text-[11px] text-paper-muted">
+                        {CASE_TYPE_META[t].hint}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <ul className="space-y-2">
@@ -337,6 +404,11 @@ export default function CasesBoard({
                       )}
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      {c.caseType === "invoice" && (
+                        <span className="rounded bg-violet-100 px-1.5 py-0.5 font-medium text-violet-700">
+                          🧾 代開發票
+                        </span>
+                      )}
                       <span className="rounded bg-paper-block px-1.5 py-0.5 text-paper-muted">
                         {formatNT(f.totalAmount)}
                       </span>
@@ -458,34 +530,62 @@ export default function CasesBoard({
                 </div>
               </div>
 
-              {/* (d) 稅務代扣開關 */}
-              <div className="mb-4 flex flex-wrap gap-2">
-                {(
-                  [
-                    ["withholdBusinessTax", "代扣 5% 營業稅"],
-                    ["withholdIncomeTax", "代扣 3% 營所稅"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label
-                    key={key}
-                    className={`inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
-                      draft[key]
-                        ? "border-brand-300 bg-brand-50 text-brand-700"
-                        : "border-paper-border text-paper-muted hover:bg-paper-block/40"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={draft[key]}
-                      onChange={(e) =>
-                        setDraft((d) => ({ ...d, [key]: e.target.checked }))
-                      }
-                      className="h-4 w-4 accent-brand-600"
-                    />
-                    {label}
-                  </label>
-                ))}
+              {/* 案件型態：自接案 / 代開發票 (只有代開發票才有稅務代扣) */}
+              <div className="mb-4">
+                <label className="field-label">案件型態</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex rounded-lg border border-paper-border p-0.5">
+                    {(Object.keys(CASE_TYPE_META) as CaseType[]).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setCaseType(t)}
+                        className={`min-h-[38px] rounded-md px-3 py-1 text-sm transition ${
+                          draft.caseType === t
+                            ? "bg-brand-600 text-white"
+                            : "text-paper-muted hover:text-paper-text"
+                        }`}
+                        title={CASE_TYPE_META[t].hint}
+                      >
+                        {CASE_TYPE_META[t].label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-paper-muted">
+                    {CASE_TYPE_META[draft.caseType].hint}
+                  </span>
+                </div>
               </div>
+
+              {/* (d) 稅務代扣開關 — 僅「幫朋友開發票」型顯示 */}
+              {draft.caseType === "invoice" && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["withholdBusinessTax", "代扣 5% 營業稅"],
+                      ["withholdIncomeTax", "代收代扣 3% 營所稅"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className={`inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                        draft[key]
+                          ? "border-brand-300 bg-brand-50 text-brand-700"
+                          : "border-paper-border text-paper-muted hover:bg-paper-block/40"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={draft[key]}
+                        onChange={(e) =>
+                          setDraft((d) => ({ ...d, [key]: e.target.checked }))
+                        }
+                        className="h-4 w-4 accent-brand-600"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              )}
 
               {/* (c) 合作夥伴費用 (外包成本) */}
               <div className="mb-4">
@@ -523,7 +623,8 @@ export default function CasesBoard({
                             </label>
                             <input
                               className="field-input"
-                              placeholder="如：小明"
+                              placeholder="輸入即搜尋人脈庫…"
+                              list="partner-contacts-list"
                               value={p.partnerName}
                               onChange={(e) =>
                                 patchPartnerCost(p.id, {
@@ -623,6 +724,22 @@ export default function CasesBoard({
                               )}
                             </span>
                           )}
+                          {/* 名稱對到人脈庫時，帶出匯款/聯絡資訊，付款免翻頁 */}
+                          {(() => {
+                            const m = contactByName(p.partnerName);
+                            if (!m) return null;
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] text-paper-muted"
+                                title={`已對應人脈庫：${m.name}`}
+                              >
+                                <Link2 size={11} className="text-brand-500" />
+                                {m.transferInfo
+                                  ? `匯款：${m.transferInfo}`
+                                  : m.contactInfo || "人脈庫聯絡人"}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
@@ -728,6 +845,13 @@ export default function CasesBoard({
           )}
         </section>
       </div>
+
+      {/* 夥伴名稱自動完成：人脈庫全部聯絡人 (原生 datalist，仍可自由填寫) */}
+      <datalist id="partner-contacts-list">
+        {contacts.map((ct) =>
+          ct.name ? <option key={ct.id} value={ct.name} /> : null,
+        )}
+      </datalist>
 
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-paper-text px-4 py-2.5 text-sm text-white shadow-float sm:bottom-6">
