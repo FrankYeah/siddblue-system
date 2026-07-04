@@ -87,9 +87,22 @@ const COOP_META: Record<
 };
 
 /** 資料表欄位樣板 (表頭與每一列共用，確保對齊)：
-    ⠿ / 姓名 / 職業別 / 合作方向 / 狀態 / 熟悉 / 能力 / 價格 / ＋ */
+    ⠿ / 姓名 / 職業別 / 合作方向 / 狀態 / 熟悉 / 能力 / 價格 / 備註 / ＋ */
 const GRID =
-  "grid grid-cols-[30px_minmax(110px,1.3fr)_minmax(150px,1.8fr)_96px_56px_48px_48px_48px_40px] items-center gap-x-2";
+  "grid grid-cols-[30px_minmax(100px,1.1fr)_minmax(130px,1.4fr)_96px_56px_48px_48px_48px_minmax(170px,1.9fr)_40px] items-center gap-x-2";
+
+/** 評級欄位的顯示名稱 (點徽章篩選時的提示用) */
+const LEVEL_FIELD_LABEL = {
+  familiarity: "熟悉",
+  ability: "能力",
+  price: "價格",
+} as const;
+
+type LevelFieldKey = keyof typeof LEVEL_FIELD_LABEL;
+
+/** 篩選 chip 上的評級文字 (unknown 顯示「不確定」而非表格的「–」) */
+const levelText = (lv: ContactLevel) =>
+  lv === "unknown" ? "不確定" : LEVEL_META[lv].label;
 
 type ModalState =
   | { mode: "edit"; id: string }
@@ -127,6 +140,13 @@ export default function ContactsBoard({
   const [ordered, setOrdered] = useState(initialOrdered);
   const [coopFilter, setCoopFilter] = useState<CooperationType | "all">("all");
   const [profFilter, setProfFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<ContactStatus | "all">(
+    "all",
+  );
+  const [levelFilter, setLevelFilter] = useState<{
+    key: LevelFieldKey;
+    value: ContactLevel;
+  } | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [draft, setDraft] = useState<ContactInput>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
@@ -185,8 +205,35 @@ export default function ContactsBoard({
     );
   }, [contacts]);
 
-  const filtering =
-    coopFilter !== "all" || profFilter !== "all" || searchQuery.trim() !== "";
+  /** 本地篩選 (不含全域搜尋)，「清除篩選」按鈕只清這些 */
+  const localFiltering =
+    coopFilter !== "all" ||
+    profFilter !== "all" ||
+    statusFilter !== "all" ||
+    levelFilter !== null;
+  const filtering = localFiltering || searchQuery.trim() !== "";
+
+  // ── 點儲存格值即篩選 (再點一次同值 = 取消) ──
+  function toggleProf(t: string) {
+    setProfFilter((p) => (p === t ? "all" : t));
+  }
+  function toggleCoop(t: CooperationType) {
+    setCoopFilter((p) => (p === t ? "all" : t));
+  }
+  function toggleStatus(s: ContactStatus) {
+    setStatusFilter((p) => (p === s ? "all" : s));
+  }
+  function toggleLevel(key: LevelFieldKey, value: ContactLevel) {
+    setLevelFilter((p) =>
+      p && p.key === key && p.value === value ? null : { key, value },
+    );
+  }
+  function clearFilters() {
+    setCoopFilter("all");
+    setProfFilter("all");
+    setStatusFilter("all");
+    setLevelFilter(null);
+  }
 
   const visible = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -198,6 +245,9 @@ export default function ContactsBoard({
         !professionTokens(c.profession).includes(profFilter)
       )
         return false;
+      if (statusFilter !== "all" && c.status !== statusFilter) return false;
+      if (levelFilter && c[levelFilter.key] !== levelFilter.value)
+        return false;
       if (!q) return true;
       return (
         c.name.toLowerCase().includes(q) ||
@@ -208,7 +258,7 @@ export default function ContactsBoard({
         c.note.toLowerCase().includes(q)
       );
     });
-  }, [contacts, coopFilter, profFilter, searchQuery]);
+  }, [contacts, coopFilter, profFilter, statusFilter, levelFilter, searchQuery]);
 
   // ── 拖曳排序 (篩選中暫停：過濾後 index 與原陣列不對齊) ──
   function onDragEnd(result: DropResult) {
@@ -412,6 +462,22 @@ export default function ContactsBoard({
           ))}
         </select>
 
+        <select
+          className="field-input w-auto min-w-[110px]"
+          value={statusFilter}
+          onChange={(e) =>
+            setStatusFilter(e.target.value as ContactStatus | "all")
+          }
+          aria-label="依狀態篩選"
+        >
+          <option value="all">全部狀態</option>
+          <option value="employed">就業</option>
+          <option value="freelance">接案</option>
+          <option value="startup">創業</option>
+          <option value="student">學生</option>
+          <option value="unknown">未知</option>
+        </select>
+
         <div className="inline-flex rounded-lg border border-paper-border bg-white p-0.5">
           {(
             [
@@ -433,6 +499,27 @@ export default function ContactsBoard({
             </button>
           ))}
         </div>
+
+        {/* 點表格評級徽章產生的篩選 chip */}
+        {levelFilter && (
+          <button
+            onClick={() => setLevelFilter(null)}
+            className="inline-flex min-h-[32px] items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-100"
+            title="清除此篩選"
+          >
+            {LEVEL_FIELD_LABEL[levelFilter.key]}：{levelText(levelFilter.value)}
+            <X size={12} />
+          </button>
+        )}
+
+        {localFiltering && (
+          <button
+            onClick={clearFilters}
+            className="text-xs text-paper-muted underline underline-offset-2 transition hover:text-brand-600"
+          >
+            清除篩選
+          </button>
+        )}
 
         <span className="text-xs text-paper-muted">
           {filtering ? `${visible.length} / ${contacts.length} 位` : `共 ${contacts.length} 位`}
@@ -480,7 +567,7 @@ export default function ContactsBoard({
 
       {/* ── 資料表 (手機橫向滾動) ── */}
       <div className="overflow-x-auto rounded-xl border border-paper-border bg-white">
-        <div className="min-w-[760px]">
+        <div className="min-w-[940px]">
           {/* 表頭 */}
           <div
             className={`${GRID} border-b border-paper-border bg-paper-block/50 px-2 py-2 text-xs font-medium text-paper-muted`}
@@ -493,6 +580,7 @@ export default function ContactsBoard({
             <span className="text-center">熟悉</span>
             <span className="text-center">能力</span>
             <span className="text-center">價格</span>
+            <span>備註</span>
             <span />
           </div>
 
@@ -553,15 +641,25 @@ export default function ContactsBoard({
                             )}
                           </span>
 
+                          {/* 儲存格的值皆可點擊 → 即套用/取消該值的篩選 */}
                           <span className="flex flex-wrap gap-1 py-0.5">
                             {professionTokens(c.profession).length > 0 ? (
                               professionTokens(c.profession).map((t) => (
-                                <span
+                                <button
                                   key={t}
-                                  className="rounded bg-paper-block px-1.5 py-0.5 text-[11px] text-paper-muted"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleProf(t);
+                                  }}
+                                  className={`rounded bg-paper-block px-1.5 py-0.5 text-[11px] text-paper-muted transition hover:bg-paper-border hover:text-paper-text ${
+                                    profFilter === t
+                                      ? "ring-1 ring-brand-500"
+                                      : ""
+                                  }`}
+                                  title={`篩選職業別：${t}`}
                                 >
                                   {t}
-                                </span>
+                                </button>
                               ))
                             ) : (
                               <span className="text-xs text-paper-muted/60">
@@ -571,34 +669,72 @@ export default function ContactsBoard({
                           </span>
 
                           <span>
-                            <span
-                              className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${COOP_META[c.cooperationType].chip}`}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleCoop(c.cooperationType);
+                              }}
+                              className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition hover:brightness-95 ${COOP_META[c.cooperationType].chip} ${
+                                coopFilter === c.cooperationType
+                                  ? "ring-1 ring-brand-500"
+                                  : ""
+                              }`}
+                              title={`篩選合作方向：${COOP_META[c.cooperationType].label}`}
                             >
                               {COOP_META[c.cooperationType].label}
-                            </span>
+                            </button>
                           </span>
 
-                          <span
-                            className={`text-xs ${
-                              c.status === "unknown"
-                                ? "text-paper-muted/60"
-                                : "text-paper-text"
-                            }`}
-                          >
-                            {STATUS_META[c.status]}
+                          <span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleStatus(c.status);
+                              }}
+                              className={`rounded px-1.5 py-0.5 text-xs transition hover:bg-paper-block ${
+                                c.status === "unknown"
+                                  ? "text-paper-muted/60"
+                                  : "text-paper-text"
+                              } ${
+                                statusFilter === c.status
+                                  ? "bg-brand-50 text-brand-700 ring-1 ring-brand-500"
+                                  : ""
+                              }`}
+                              title={`篩選狀態：${c.status === "unknown" ? "未知" : STATUS_META[c.status]}`}
+                            >
+                              {STATUS_META[c.status]}
+                            </button>
                           </span>
 
                           {(["familiarity", "ability", "price"] as const).map(
                             (key) => (
                               <span key={key} className="text-center">
-                                <span
-                                  className={`inline-block min-w-[24px] rounded px-1 py-0.5 text-[11px] font-medium ${LEVEL_META[c[key]].chip}`}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleLevel(key, c[key]);
+                                  }}
+                                  className={`inline-block min-w-[24px] rounded px-1 py-0.5 text-[11px] font-medium transition hover:brightness-95 ${LEVEL_META[c[key]].chip} ${
+                                    levelFilter?.key === key &&
+                                    levelFilter.value === c[key]
+                                      ? "ring-1 ring-brand-500"
+                                      : ""
+                                  }`}
+                                  title={`篩選${LEVEL_FIELD_LABEL[key]}：${levelText(c[key])}`}
                                 >
                                   {LEVEL_META[c[key]].label}
-                                </span>
+                                </button>
                               </span>
                             ),
                           )}
+
+                          {/* 備註：直接呈現，最多兩行 (完整內容進列點開的 Modal) */}
+                          <span
+                            className="line-clamp-2 whitespace-pre-line break-words py-0.5 text-xs leading-4 text-paper-muted"
+                            title={c.note || undefined}
+                          >
+                            {c.note}
+                          </span>
 
                           {/* Hover 顯示：在此列下方插入 */}
                           <button

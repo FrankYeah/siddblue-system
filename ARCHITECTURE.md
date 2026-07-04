@@ -364,6 +364,7 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 - **逐筆 CRUD + 索引**：`contact:{id}` + `contacts:index`。
 - **資料表排序（`contacts:order`）**：後台為 Notion 風格資料表（`ContactsBoard`），以 `@hello-pangea/dnd` 拖曳排序。拖曳/逐列插入/刪除後把**整個 id 陣列** `PUT /api/contacts` 覆寫（經 `useQueuedSave` 序列化，不會舊蓋新）。`order: null` 清除手動排序（「重新分組」按鈕）。⚠️ `useQueuedSave` 以 `null` 為佇列空值哨兵，酬載須包成 `{ order }` 物件。
 - **預設分組排序（`lib/contacts-sort.ts` `groupSortContacts`）**：未手動排序時，依 合作方向（專案→業界）→ 職業別 → 姓名 排序，同領域人脈相鄰；不在手動順序中的 id（匯入/他處新增）附加在最後。**篩選/搜尋中拖曳自動停用**（過濾後 index 與原陣列不對齊）。
+- **點值即篩選 (click-to-filter)**：資料表每列的 職業別 chip／合作方向徽章／狀態／熟悉・能力・價格徽章都可點擊，點一下套用該值篩選（篩選列同步、可疊加），再點一次或按「清除篩選」取消；點擊經 `stopPropagation`，不會誤開該列的編輯 Modal。**備註**直接顯示於資料表（`line-clamp-2`，完整內容進 Modal）。
 - **CSV 匯入**（`lib/contacts-csv.ts` 前端解析 → `POST /api/contacts/import` 整批寫入）：
   - RFC 4180 風格解析（引號欄位、欄內逗號/換行、`""` 跳脫、BOM）。
   - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/喜好度/能力值/價格/狀態/合作方向/匯款資訊/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。
