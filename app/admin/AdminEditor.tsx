@@ -19,6 +19,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
+import TextareaAutosize from "react-textarea-autosize";
 import { CodeBraces } from "@/components/BrandDecor";
 import {
   buildDefaultQuoteInput,
@@ -717,9 +718,10 @@ export default function AdminEditor({
                         />
                       </td>
                       <td className="px-1">
-                        <textarea
-                          className="field-input min-h-[42px] resize-y"
-                          rows={1}
+                        {/* 自動依內文長高（免捲動）；resize-none 避免手動拉桿與自動高度打架 */}
+                        <TextareaAutosize
+                          minRows={3}
+                          className="field-input resize-none"
                           placeholder="功能說明 (可多行)"
                           value={it.description}
                           onChange={(e) => updateItem(i, "description", e.target.value)}
@@ -832,8 +834,9 @@ export default function AdminEditor({
                     </div>
                     <div>
                       <label className="field-label">功能說明</label>
-                      <textarea
-                        className="field-input min-h-[60px] resize-y"
+                      <TextareaAutosize
+                        minRows={3}
+                        className="field-input resize-none"
                         placeholder="功能說明 (可多行)"
                         value={it.description}
                         onChange={(e) =>
@@ -951,8 +954,9 @@ export default function AdminEditor({
                           updateProcessStep(i, "title", e.target.value)
                         }
                       />
-                      <textarea
-                        className="field-input min-h-[60px] resize-y"
+                      <TextareaAutosize
+                        minRows={3}
+                        className="field-input resize-none"
                         placeholder="說明（可多行）"
                         value={s.description}
                         onChange={(e) =>

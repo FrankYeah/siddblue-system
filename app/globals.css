@@ -141,10 +141,14 @@ input[type="number"] {
    手機版觸控優化 (Mobile-first)
    ─────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  /* 表單控件字級 ≥ 16px：避免 iOS Safari 聚焦時整頁自動放大 */
+  /* 表單控件字級 ≥ 16px：避免 iOS Safari 聚焦時整頁自動放大
+     （textarea.field-input / select.field-input：提高 specificity，
+     否則裸元素選擇器 (0,0,1) 蓋不過 .field-input 的 text-sm (0,1,0)） */
   input:not([type="checkbox"]):not([type="radio"]),
   select,
-  textarea {
+  select.field-input,
+  textarea,
+  textarea.field-input {
     font-size: 16px;
   }
 

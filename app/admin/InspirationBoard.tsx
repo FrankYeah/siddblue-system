@@ -326,7 +326,8 @@ export default function InspirationBoard({
                               ds.isDragging ? "shadow-float ring-2 ring-brand-300" : ""
                             } ${col.key === "archived" ? "opacity-60" : ""}`}
                           >
-                            <div className="truncate text-sm font-medium text-paper-text">
+                            {/* 標題完整顯示：多行向下展開，不截斷 */}
+                            <div className="whitespace-normal break-words text-sm font-medium text-paper-text">
                               {card.title || (
                                 <span className="text-paper-muted">（未命名靈感）</span>
                               )}
