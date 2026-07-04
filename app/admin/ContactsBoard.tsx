@@ -169,11 +169,17 @@ function contactToDraft(c: Contact): ContactInput {
 export default function ContactsBoard({
   initialContacts,
   initialOrdered,
+  focusContactId = null,
+  onFocusHandled,
   searchQuery = "",
 }: {
   initialContacts: Contact[];
   /** 伺服器端是否已套用手動排序 (contacts:order 存在) */
   initialOrdered: boolean;
+  /** 由他處（案件管理夥伴「連過去」）指定要開啟詳情的聯絡人 id */
+  focusContactId?: string | null;
+  /** 已處理 focus 後通知父層清除，避免重複開啟 */
+  onFocusHandled?: () => void;
   /** 全域搜尋框（AdminWorkspace）傳入的關鍵字 */
   searchQuery?: string;
 }) {
@@ -348,6 +354,16 @@ export default function ContactsBoard({
     setNewProf("");
     setModal({ mode: "edit", id: c.id });
   }
+
+  // 由案件管理「連過去看詳情」指定：切到本頁籤時自動開啟該聯絡人 Modal
+  useEffect(() => {
+    if (!focusContactId) return;
+    const target = contacts.find((c) => c.id === focusContactId);
+    if (target) openEdit(target);
+    else flash("找不到該聯絡人（可能已刪除）");
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusContactId]);
 
   function openCreate(afterId: string | null) {
     setDraft(EMPTY_DRAFT);

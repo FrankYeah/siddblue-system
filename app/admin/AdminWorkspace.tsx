@@ -62,6 +62,14 @@ export default function AdminWorkspace({
   // 全域搜尋：即打即過濾當前頁籤的資料（寫作靈感 / 知識庫 / 案件 / 人脈）
   const [search, setSearch] = useState("");
   const searchable = Boolean(SEARCH_PLACEHOLDER[tab]);
+  // 跨頁籤：案件的夥伴「連過去看詳情」→ 切到人脈庫並打開該聯絡人的 Modal
+  const [focusContactId, setFocusContactId] = useState<string | null>(null);
+
+  function openContact(id: string) {
+    setSearch("");
+    setTab("contacts");
+    setFocusContactId(id);
+  }
 
   async function logout() {
     await fetch("/api/admin/login", { method: "DELETE" });
@@ -157,6 +165,7 @@ export default function AdminWorkspace({
             initialCases={initialCases}
             quotes={initialQuotes}
             contacts={initialContacts}
+            onOpenContact={openContact}
             searchQuery={tab === "cases" ? search : ""}
           />
         </div>
@@ -179,6 +188,8 @@ export default function AdminWorkspace({
           <ContactsBoard
             initialContacts={initialContacts}
             initialOrdered={initialContactsOrdered}
+            focusContactId={focusContactId}
+            onFocusHandled={() => setFocusContactId(null)}
             searchQuery={tab === "contacts" ? search : ""}
           />
         </div>

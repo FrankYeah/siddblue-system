@@ -56,6 +56,7 @@ function sanitizePartnerCosts(raw: unknown): PartnerCost[] {
     return {
       id: String(p?.id || nanoid(10)),
       partnerName: String(p?.partnerName ?? "").slice(0, 100),
+      contactId: String(p?.contactId ?? ""),
       role: String(p?.role ?? "").slice(0, 100),
       amount,
       // 已付金額不得超過應付金額 (舊資料缺欄位時補 0)

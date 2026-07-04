@@ -227,8 +227,10 @@ export type PartnerPayStatus =
 /** 單筆合作夥伴費用 (外包成本，Accounts Payable) */
 export interface PartnerCost {
   id: string;
-  /** 夥伴名稱 */
+  /** 夥伴名稱 (可為人脈庫聯絡人名稱快照，或自由填寫的名單外人選) */
   partnerName: string;
+  /** 關聯的人脈庫聯絡人 id (空字串 = 未關聯/名單外)，供「連過去看詳情」精準對應 */
+  contactId: string;
   /** 負責項目 (如：前端、設計) */
   role: string;
   /** 應付金額 */
