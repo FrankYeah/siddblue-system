@@ -32,11 +32,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
       profession: input?.profession ?? "",
       contactInfo: input?.contactInfo ?? "",
       url: input?.url ?? "",
-      familiarity: input?.familiarity ?? "medium",
-      ability: input?.ability ?? "medium",
-      price: input?.price ?? "medium",
-      status: input?.status ?? "freelance",
+      familiarity: input?.familiarity ?? "unknown",
+      liking: input?.liking ?? "unknown",
+      ability: input?.ability ?? "unknown",
+      price: input?.price ?? "unknown",
+      status: input?.status ?? "unknown",
       cooperationType: input?.cooperationType ?? "project",
+      transferInfo: input?.transferInfo ?? "",
       note: input?.note ?? "",
     });
     if (!contact) {

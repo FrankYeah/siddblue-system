@@ -31,7 +31,9 @@ export interface CaseFinance {
   taxTotal: number;
   /** 合作夥伴費用合計 (外包成本) */
   partnerTotal: number;
-  /** 尚未結清的夥伴費用 (付款狀態非「已結清」的金額加總，供催付參考) */
+  /** 已支付給夥伴的金額 (已結清視同全額 + 其餘列的已付金額) */
+  partnerPaid: number;
+  /** 尚未結清的夥伴費用 = 各列「應付 − 已付」(已結清列為 0)，供催付參考 */
   partnerOutstanding: number;
   /** 實際淨利 = 總應收 − 代扣稅務 − 夥伴費用合計 */
   netProfit: number;
@@ -62,10 +64,18 @@ export function computeCaseFinance(
     ? Math.round(totalAmount * INCOME_TAX_RATE)
     : 0;
   const partnerTotal = partnerCostsTotal(c.partnerCosts);
-  const partnerOutstanding = c.partnerCosts.reduce(
-    (sum, p) => sum + (p.payStatus === "paid" ? 0 : Number(p.amount) || 0),
-    0,
-  );
+  let partnerPaid = 0;
+  let partnerOutstanding = 0;
+  for (const p of c.partnerCosts) {
+    const amount = Number(p.amount) || 0;
+    // 已結清視同付滿全額；其餘依「已付金額」計算剩餘 (訂金/分期)
+    const paid =
+      p.payStatus === "paid"
+        ? amount
+        : Math.min(Number(p.paidAmount) || 0, amount);
+    partnerPaid += paid;
+    partnerOutstanding += amount - paid;
+  }
   const taxTotal = businessTax + incomeTax;
   return {
     totalAmount,
@@ -75,6 +85,7 @@ export function computeCaseFinance(
     incomeTax,
     taxTotal,
     partnerTotal,
+    partnerPaid,
     partnerOutstanding,
     netProfit: totalAmount - taxTotal - partnerTotal,
   };

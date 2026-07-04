@@ -303,6 +303,7 @@ interface PartnerCost {      // 合作夥伴費用 (外包成本，Accounts Paya
   partnerName: string;       // 夥伴名稱
   role: string;              // 負責項目 (前端、設計…)
   amount: number;            // 應付金額
+  paidAmount: number;        // 已付金額 (訂金/分期實付；「已結清」視同全額)
   payStatus: PartnerPayStatus;
 }
 
@@ -331,21 +332,25 @@ type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
 ### 3.6 Contact（人脈資料庫）
 
 ```ts
-type ContactLevel = "high" | "medium" | "low";        // 高 / 中 / 低
-type ContactStatus = "employed" | "freelance";        // 就業 / 接案
+type ContactLevel = "high" | "medium" | "low" | "unknown"; // 高 / 中 / 低 / 不確定
+type ContactStatus =                                   // 對齊 Notion 人脈庫既有分類
+  | "employed" | "freelance" | "startup" | "student" | "unknown";
+  // 就業 / 接案 / 創業 / 學生 / 未知
 type CooperationType = "project" | "industry";        // 專案合作(外包、合夥) / 業界合作(網紅、互惠)
 
 interface Contact {
   id: string;                    // nanoid(10)
   name: string;                  // 姓名
-  profession: string;            // 職業別 (Notion、前端工程師…)
+  profession: string;            // 職業別 (Notion、前端工程師…；可逗號多值)
   contactInfo: string;           // 聯絡方式 (Line / IG / Email)
-  url: string;                   // 網址
+  url: string;                   // 網址 (可多行多連結)
   familiarity: ContactLevel;     // 熟悉度
+  liking: ContactLevel;          // 喜好度
   ability: ContactLevel;         // 能力值
   price: ContactLevel;           // 價格
-  status: ContactStatus;         // 就業 / 接案
+  status: ContactStatus;         // 就業 / 接案 / 創業 / 學生 / 未知
   cooperationType: CooperationType; // 合作方向
+  transferInfo: string;          // 匯款資訊 (支付外包款用)
   note: string;                  // 備註
   createdAt: string;             // ISO
   updatedAt: string;             // ISO
@@ -357,8 +362,8 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 - **逐筆 CRUD + 索引**：`contact:{id}` + `contacts:index`。
 - **CSV 匯入**（`lib/contacts-csv.ts` 前端解析 → `POST /api/contacts/import` 整批寫入）：
   - RFC 4180 風格解析（引號欄位、欄內逗號/換行、`""` 跳脫、BOM）。
-  - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/能力值/價格/狀態/合作方向/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。
-  - 值正規化：`高/中/低`→`high/medium/low`（預設 `medium`）、`就業/接案`→`employed/freelance`（預設 `freelance`）、含「業界/網紅/互惠」→`industry`（預設 `project`）。缺姓名的資料列略過。
+  - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/喜好度/能力值/價格/狀態/合作方向/匯款資訊/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。
+  - 值正規化：`高/中/低/不確定`→`high/medium/low/unknown`（複合值如「中, 高」取較明確者：高 > 低 > 中；未填/無法辨識→`unknown`）、`就業/接案/創業/學生`→`employed/freelance/startup/student`（未填→`unknown`）、含「業界/網紅/互惠」→`industry`（預設 `project`）。缺姓名的資料列略過。
   - 伺服器端以 **KV pipeline** 一次寫入（單批上限 500 筆），依 CSV 順序遞增時間戳確保索引排序穩定。
 
 ---
@@ -485,13 +490,14 @@ interface CaseFinance {
   incomeTax: number;          // 開啟時 = round(總應收 × 3%)
   taxTotal: number;           // 稅務合計
   partnerTotal: number;       // 夥伴費用合計
-  partnerOutstanding: number; // 尚未結清的夥伴費用 (payStatus ≠ paid)
+  partnerPaid: number;        // 已支付夥伴金額 (已結清視同全額 + 其餘列的 paidAmount)
+  partnerOutstanding: number; // 尚未結清 = Σ(應付 − 已付)，已結清列為 0
   netProfit: number;          // 實際淨利 = 總應收 − 稅務 − 夥伴費用
 }
 ```
 
 - 稅金各自**四捨五入至整數**（與報價單 `computeTotals()` 慣例一致）。
-- 使用點：`CasesBoard` 編輯區的即時財務摘要、左列表徽章、頂部**催款提醒**區塊（列出所有 `unpaidBalance > 0` 的案件，金額大→小）。
+- 使用點：`CasesBoard` 編輯區的即時財務摘要、左列表徽章、頂部**催款提醒**區塊（列出所有 `unpaidBalance > 0` 的案件，金額大→小，標題顯示未收合計）。
 
 ### 5.6 後台驗證（`lib/auth.ts`）
 

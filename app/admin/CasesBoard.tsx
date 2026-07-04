@@ -214,6 +214,7 @@ export default function CasesBoard({
           partnerName: "",
           role: "",
           amount: 0,
+          paidAmount: 0,
           payStatus: "unpaid" as PartnerPayStatus,
         },
       ],
@@ -267,9 +268,12 @@ export default function CasesBoard({
       {/* 🔔 催款提醒：有未收款餘額的案件 */}
       {unpaidCases.length > 0 && (
         <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-3.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-amber-800">
             <BellRing size={16} />
-            催款提醒：{unpaidCases.length} 個案件尚有未收款
+            催款提醒：{unpaidCases.length} 個案件尚有未收款，合計{" "}
+            {formatNT(
+              unpaidCases.reduce((sum, u) => sum + u.fin.unpaidBalance, 0),
+            )}
           </div>
           <ul className="mt-2 space-y-1.5">
             {unpaidCases.map(({ c, fin: f }) => (
@@ -512,7 +516,7 @@ export default function CasesBoard({
                         >
                           <Trash2 size={14} />
                         </button>
-                        <div className="grid grid-cols-2 gap-2 pr-8 sm:grid-cols-4 sm:pr-9">
+                        <div className="grid grid-cols-2 gap-2 pr-8 sm:grid-cols-5 sm:pr-9">
                           <div>
                             <label className="field-label text-xs">
                               夥伴名稱
@@ -561,6 +565,24 @@ export default function CasesBoard({
                           </div>
                           <div>
                             <label className="field-label text-xs">
+                              已付金額
+                            </label>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={0}
+                              className="field-input"
+                              placeholder="0"
+                              value={amountValue(p.paidAmount)}
+                              onChange={(e) =>
+                                patchPartnerCost(p.id, {
+                                  paidAmount: parseAmount(e.target.value),
+                                })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="field-label text-xs">
                               付款狀態
                             </label>
                             <select
@@ -585,11 +607,23 @@ export default function CasesBoard({
                             </select>
                           </div>
                         </div>
-                        <span
-                          className={`mt-2 inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${PAY_STATUS_META[p.payStatus].badge}`}
-                        >
-                          {PAY_STATUS_META[p.payStatus].label}
-                        </span>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${PAY_STATUS_META[p.payStatus].badge}`}
+                          >
+                            {PAY_STATUS_META[p.payStatus].label}
+                          </span>
+                          {/* 訂金/分期：顯示剩餘應付，一眼看出還欠夥伴多少 */}
+                          {p.payStatus !== "paid" && p.paidAmount > 0 && (
+                            <span className="text-[11px] text-amber-700">
+                              已付 {formatNT(Math.min(p.paidAmount, p.amount))}
+                              ・未付{" "}
+                              {formatNT(
+                                Math.max(p.amount - p.paidAmount, 0),
+                              )}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -645,7 +679,9 @@ export default function CasesBoard({
                   </div>
                   {fin.partnerOutstanding > 0 && (
                     <div className="flex justify-between text-xs">
-                      <dt className="text-paper-muted">└ 其中尚未結清</dt>
+                      <dt className="text-paper-muted">
+                        └ 已付 {formatNT(fin.partnerPaid)}，尚未結清
+                      </dt>
                       <dd className="text-amber-700">
                         {formatNT(fin.partnerOutstanding)}
                       </dd>

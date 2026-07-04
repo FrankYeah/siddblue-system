@@ -228,6 +228,8 @@ export interface PartnerCost {
   role: string;
   /** 應付金額 */
   amount: number;
+  /** 已付金額 (訂金/分期實付；「已結清」時視同全額) */
+  paidAmount: number;
   /** 付款狀態 */
   payStatus: PartnerPayStatus;
 }
@@ -265,11 +267,16 @@ export type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
 //  人脈資料庫 (Connections CRM)
 // ═════════════════════════════════════════════════════════════
 
-/** 三段式評級 (熟悉度 / 能力值 / 價格) */
-export type ContactLevel = "high" | "medium" | "low"; // 高 / 中 / 低
+/** 評級 (熟悉度 / 能力值 / 價格 / 喜好度)；unknown = 不確定/未填 */
+export type ContactLevel = "high" | "medium" | "low" | "unknown"; // 高 / 中 / 低 / 不確定
 
-/** 就業狀態 */
-export type ContactStatus = "employed" | "freelance"; // 就業 / 接案
+/** 就業狀態 (對齊 Notion 人脈庫既有分類) */
+export type ContactStatus =
+  | "employed" // 就業
+  | "freelance" // 接案
+  | "startup" // 創業
+  | "student" // 學生
+  | "unknown"; // 未知/未填
 
 /** 合作方向分類 */
 export type CooperationType =
@@ -290,14 +297,18 @@ export interface Contact {
   url: string;
   /** 熟悉度 */
   familiarity: ContactLevel;
+  /** 喜好度 */
+  liking: ContactLevel;
   /** 能力值 */
   ability: ContactLevel;
   /** 價格 */
   price: ContactLevel;
-  /** 狀態 (就業 / 接案) */
+  /** 狀態 (就業 / 接案 / 創業 / 學生) */
   status: ContactStatus;
   /** 合作方向 (專案合作 / 業界合作) */
   cooperationType: CooperationType;
+  /** 匯款資訊 (銀行/帳號，支付外包款用) */
+  transferInfo: string;
   /** 備註 */
   note: string;
   /** 建立時間 (ISO 字串) */

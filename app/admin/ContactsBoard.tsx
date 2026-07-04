@@ -30,11 +30,13 @@ const EMPTY_DRAFT: ContactInput = {
   profession: "",
   contactInfo: "",
   url: "",
-  familiarity: "medium",
-  ability: "medium",
-  price: "medium",
-  status: "freelance",
+  familiarity: "unknown",
+  liking: "unknown",
+  ability: "unknown",
+  price: "unknown",
+  status: "unknown",
   cooperationType: "project",
+  transferInfo: "",
   note: "",
 };
 
@@ -42,11 +44,15 @@ const LEVEL_META: Record<ContactLevel, { label: string; chip: string }> = {
   high: { label: "高", chip: "bg-emerald-100 text-emerald-700" },
   medium: { label: "中", chip: "bg-amber-100 text-amber-700" },
   low: { label: "低", chip: "bg-paper-block text-paper-muted" },
+  unknown: { label: "？", chip: "bg-paper-block text-paper-muted" },
 };
 
 const STATUS_META: Record<ContactStatus, string> = {
   employed: "就業",
   freelance: "接案",
+  startup: "創業",
+  student: "學生",
+  unknown: "未知",
 };
 
 const COOP_META: Record<
@@ -72,10 +78,12 @@ function contactToDraft(c: Contact): ContactInput {
     contactInfo: c.contactInfo,
     url: c.url,
     familiarity: c.familiarity,
+    liking: c.liking,
     ability: c.ability,
     price: c.price,
     status: c.status,
     cooperationType: c.cooperationType,
+    transferInfo: c.transferInfo,
     note: c.note,
   };
 }
@@ -249,7 +257,7 @@ export default function ContactsBoard({
               onClick={() => fileRef.current?.click()}
               disabled={importing}
               className="btn-ghost flex-1 text-sm"
-              title="第一列為表頭：姓名、職業別、聯絡方式、網址、熟悉度、能力值、價格、狀態、合作方向、備註（欄位順序不拘、可缺欄）"
+              title="第一列為表頭：姓名、職業別、聯絡方式、網址、熟悉度、喜好度、能力值、價格、狀態、合作方向、匯款資訊、備註（欄位順序不拘、可缺欄；高/中/低/不確定、就業/接案/創業/學生 自動辨識）"
             >
               <Upload size={15} /> 匯入 CSV
             </button>
@@ -332,24 +340,29 @@ export default function ContactsBoard({
                     </div>
                   )}
                   <div className="mt-1.5 flex flex-wrap gap-1 text-[10px]">
-                    <span
-                      className={`rounded px-1.5 py-0.5 ${LEVEL_META[c.familiarity].chip}`}
-                    >
-                      熟悉 {LEVEL_META[c.familiarity].label}
-                    </span>
-                    <span
-                      className={`rounded px-1.5 py-0.5 ${LEVEL_META[c.ability].chip}`}
-                    >
-                      能力 {LEVEL_META[c.ability].label}
-                    </span>
-                    <span
-                      className={`rounded px-1.5 py-0.5 ${LEVEL_META[c.price].chip}`}
-                    >
-                      價格 {LEVEL_META[c.price].label}
-                    </span>
-                    <span className="rounded bg-paper-block px-1.5 py-0.5 text-paper-muted">
-                      {STATUS_META[c.status]}
-                    </span>
+                    {/* 「不確定/未知」的評級不顯示徽章，降低列表雜訊 */}
+                    {(
+                      [
+                        ["熟悉", c.familiarity],
+                        ["喜好", c.liking],
+                        ["能力", c.ability],
+                        ["價格", c.price],
+                      ] as const
+                    )
+                      .filter(([, lv]) => lv !== "unknown")
+                      .map(([label, lv]) => (
+                        <span
+                          key={label}
+                          className={`rounded px-1.5 py-0.5 ${LEVEL_META[lv].chip}`}
+                        >
+                          {label} {LEVEL_META[lv].label}
+                        </span>
+                      ))}
+                    {c.status !== "unknown" && (
+                      <span className="rounded bg-paper-block px-1.5 py-0.5 text-paper-muted">
+                        {STATUS_META[c.status]}
+                      </span>
+                    )}
                   </div>
                 </button>
               </li>
@@ -426,13 +439,25 @@ export default function ContactsBoard({
                     )}
                   </div>
                 </div>
+                <div className="sm:col-span-2">
+                  <label className="field-label">匯款資訊（支付外包款用）</label>
+                  <input
+                    className="field-input"
+                    placeholder="如：台新 812 / 帳號 xxxxxxxxx"
+                    value={draft.transferInfo}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, transferInfo: e.target.value }))
+                    }
+                  />
+                </div>
               </div>
 
-              {/* 評級 (熟悉度 / 能力值 / 價格) */}
-              <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+              {/* 評級 (熟悉度 / 喜好度 / 能力值 / 價格) */}
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 {(
                   [
                     ["familiarity", "熟悉度"],
+                    ["liking", "喜好度"],
                     ["ability", "能力值"],
                     ["price", "價格"],
                   ] as const
@@ -452,6 +477,7 @@ export default function ContactsBoard({
                       <option value="high">高</option>
                       <option value="medium">中</option>
                       <option value="low">低</option>
+                      <option value="unknown">不確定</option>
                     </select>
                   </div>
                 ))}
@@ -461,21 +487,24 @@ export default function ContactsBoard({
               <div className="mt-4 flex flex-wrap items-end gap-x-5 gap-y-3">
                 <div>
                   <label className="field-label">狀態</label>
-                  <div className="inline-flex rounded-lg border border-paper-border p-0.5">
-                    {(["employed", "freelance"] as ContactStatus[]).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setDraft((d) => ({ ...d, status: s }))}
-                        className={`min-h-[36px] rounded-md px-3 py-1 text-sm transition ${
-                          draft.status === s
-                            ? "bg-brand-600 text-white"
-                            : "text-paper-muted hover:text-paper-text"
-                        }`}
-                      >
+                  <select
+                    className="field-input w-auto min-w-[110px]"
+                    value={draft.status}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        status: e.target.value as ContactStatus,
+                      }))
+                    }
+                  >
+                    {(
+                      Object.keys(STATUS_META) as ContactStatus[]
+                    ).map((s) => (
+                      <option key={s} value={s}>
                         {STATUS_META[s]}
-                      </button>
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
                 <div>
                   <label className="field-label">合作方向</label>

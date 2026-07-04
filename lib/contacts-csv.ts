@@ -9,10 +9,11 @@ import type {
 //  人脈庫 CSV 匯入解析 (前端使用，client-safe)
 //
 //  依表頭中文欄名對應欄位 (欄位順序不拘、可缺欄)：
-//    姓名 / 職業別 / 聯絡方式 / 網址 / 熟悉度 / 能力值 / 價格 /
-//    狀態 / 合作方向 / 備註
-//  評級值 高/中/低、狀態 就業/接案、合作方向 專案合作/業界合作
-//  皆以「包含關鍵字」寬鬆比對，無法辨識時套用安全預設。
+//    姓名 / 職業別 / 聯絡方式 / 網址 / 熟悉度 / 喜好度 / 能力值 /
+//    價格 / 狀態 / 合作方向 / 匯款資訊 / 備註
+//  評級值 高/中/低/不確定、狀態 就業/接案/創業/學生、
+//  合作方向 專案合作/業界合作，皆以「包含關鍵字」寬鬆比對，
+//  無法辨識或未填時歸為 unknown (合作方向預設專案合作)。
 // ─────────────────────────────────────────────────────────────
 
 /** RFC 4180 風格 CSV 解析：支援引號欄位、欄內逗號/換行、"" 跳脫、BOM */
@@ -68,10 +69,12 @@ const HEADER_ALIASES: [ContactField, string[]][] = [
   ["contactInfo", ["聯絡方式", "聯絡資訊", "聯繫方式", "contact"]],
   ["url", ["網址", "連結", "url", "link", "website"]],
   ["familiarity", ["熟悉度", "熟悉", "familiarity"]],
+  ["liking", ["喜好度", "喜好", "liking"]],
   ["ability", ["能力值", "能力", "ability"]],
   ["price", ["價格", "價位", "price"]],
   ["status", ["狀態", "就業狀態", "status"]],
   ["cooperationType", ["合作方向", "合作類型", "合作分類", "cooperation"]],
+  ["transferInfo", ["匯款資訊", "匯款", "帳號資訊"]],
   ["note", ["備註", "筆記", "note", "memo"]],
 ];
 
@@ -86,15 +89,22 @@ function matchField(header: string): ContactField | null {
 
 function parseLevel(raw: string): ContactLevel {
   const v = raw.trim().toLowerCase();
+  if (!v) return "unknown";
+  // Notion 多選匯出會是「中, 高」這類複合值：取較明確者 (高 > 低 > 中)
   if (v.includes("高") || v.includes("high")) return "high";
   if (v.includes("低") || v.includes("low")) return "low";
-  return "medium";
+  if (v.includes("中") || v.includes("medium")) return "medium";
+  return "unknown"; // 「不確定」等無法辨識的值
 }
 
 function parseStatus(raw: string): ContactStatus {
   const v = raw.trim().toLowerCase();
+  if (!v) return "unknown";
   if (v.includes("就業") || v.includes("employ")) return "employed";
-  return "freelance";
+  if (v.includes("創業") || v.includes("startup")) return "startup";
+  if (v.includes("學生") || v.includes("student")) return "student";
+  if (v.includes("接案") || v.includes("freelance")) return "freelance";
+  return "unknown";
 }
 
 function parseCooperation(raw: string): CooperationType {
@@ -161,10 +171,12 @@ export function parseContactsCsv(text: string): ContactsCsvResult {
       contactInfo: raw.contactInfo ?? "",
       url: raw.url ?? "",
       familiarity: parseLevel(raw.familiarity ?? ""),
+      liking: parseLevel(raw.liking ?? ""),
       ability: parseLevel(raw.ability ?? ""),
       price: parseLevel(raw.price ?? ""),
       status: parseStatus(raw.status ?? ""),
       cooperationType: parseCooperation(raw.cooperationType ?? ""),
+      transferInfo: raw.transferInfo ?? "",
       note: raw.note ?? "",
     });
   }

@@ -44,13 +44,18 @@ function toAmount(raw: unknown): number {
 
 function sanitizePartnerCosts(raw: unknown): PartnerCost[] {
   if (!Array.isArray(raw)) return [];
-  return raw.slice(0, 50).map((p) => ({
-    id: String(p?.id || nanoid(10)),
-    partnerName: String(p?.partnerName ?? "").slice(0, 100),
-    role: String(p?.role ?? "").slice(0, 100),
-    amount: toAmount(p?.amount),
-    payStatus: PAY_STATUSES.includes(p?.payStatus) ? p.payStatus : "unpaid",
-  }));
+  return raw.slice(0, 50).map((p) => {
+    const amount = toAmount(p?.amount);
+    return {
+      id: String(p?.id || nanoid(10)),
+      partnerName: String(p?.partnerName ?? "").slice(0, 100),
+      role: String(p?.role ?? "").slice(0, 100),
+      amount,
+      // 已付金額不得超過應付金額 (舊資料缺欄位時補 0)
+      paidAmount: Math.min(toAmount(p?.paidAmount), amount),
+      payStatus: PAY_STATUSES.includes(p?.payStatus) ? p.payStatus : "unpaid",
+    };
+  });
 }
 
 function migrateCase(raw: Case | null): Case | null {

@@ -35,15 +35,21 @@ const memStore: Map<string, Contact> = ((
   globalThis as unknown as { __sbContactsMem?: Map<string, Contact> }
 ).__sbContactsMem ??= new Map<string, Contact>());
 
-const LEVELS: ContactLevel[] = ["high", "medium", "low"];
-const STATUSES: ContactStatus[] = ["employed", "freelance"];
+const LEVELS: ContactLevel[] = ["high", "medium", "low", "unknown"];
+const STATUSES: ContactStatus[] = [
+  "employed",
+  "freelance",
+  "startup",
+  "student",
+  "unknown",
+];
 const COOPERATION_TYPES: CooperationType[] = ["project", "industry"];
 
 // ── 清理 / 補齊 (防止壞資料，並相容缺欄位的舊資料) ──
 function toLevel(raw: unknown): ContactLevel {
   return LEVELS.includes(raw as ContactLevel)
     ? (raw as ContactLevel)
-    : "medium";
+    : "unknown";
 }
 
 function migrateContact(raw: Contact | null): Contact | null {
@@ -53,14 +59,16 @@ function migrateContact(raw: Contact | null): Contact | null {
     name: String(raw.name ?? "").slice(0, 100),
     profession: String(raw.profession ?? "").slice(0, 200),
     contactInfo: String(raw.contactInfo ?? "").slice(0, 500),
-    url: String(raw.url ?? "").slice(0, 500),
+    url: String(raw.url ?? "").slice(0, 1000),
     familiarity: toLevel(raw.familiarity),
+    liking: toLevel(raw.liking),
     ability: toLevel(raw.ability),
     price: toLevel(raw.price),
-    status: STATUSES.includes(raw.status) ? raw.status : "freelance",
+    status: STATUSES.includes(raw.status) ? raw.status : "unknown",
     cooperationType: COOPERATION_TYPES.includes(raw.cooperationType)
       ? raw.cooperationType
       : "project",
+    transferInfo: String(raw.transferInfo ?? "").slice(0, 500),
     note: String(raw.note ?? "").slice(0, 5000),
     createdAt: String(raw.createdAt || new Date().toISOString()),
     updatedAt: String(raw.updatedAt || new Date().toISOString()),
@@ -73,14 +81,16 @@ function cleanInput(input: ContactInput): ContactInput {
     name: String(input?.name ?? "").slice(0, 100),
     profession: String(input?.profession ?? "").slice(0, 200),
     contactInfo: String(input?.contactInfo ?? "").slice(0, 500),
-    url: String(input?.url ?? "").slice(0, 500),
+    url: String(input?.url ?? "").slice(0, 1000),
     familiarity: toLevel(input?.familiarity),
+    liking: toLevel(input?.liking),
     ability: toLevel(input?.ability),
     price: toLevel(input?.price),
-    status: STATUSES.includes(input?.status) ? input.status : "freelance",
+    status: STATUSES.includes(input?.status) ? input.status : "unknown",
     cooperationType: COOPERATION_TYPES.includes(input?.cooperationType)
       ? input.cooperationType
       : "project",
+    transferInfo: String(input?.transferInfo ?? "").slice(0, 500),
     note: String(input?.note ?? "").slice(0, 5000),
   };
 }

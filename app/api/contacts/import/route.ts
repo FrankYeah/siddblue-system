@@ -32,11 +32,13 @@ export async function POST(req: NextRequest) {
       profession: r?.profession ?? "",
       contactInfo: r?.contactInfo ?? "",
       url: r?.url ?? "",
-      familiarity: r?.familiarity ?? "medium",
-      ability: r?.ability ?? "medium",
-      price: r?.price ?? "medium",
-      status: r?.status ?? "freelance",
+      familiarity: r?.familiarity ?? "unknown",
+      liking: r?.liking ?? "unknown",
+      ability: r?.ability ?? "unknown",
+      price: r?.price ?? "unknown",
+      status: r?.status ?? "unknown",
       cooperationType: r?.cooperationType ?? "project",
+      transferInfo: r?.transferInfo ?? "",
       note: r?.note ?? "",
     }));
     const contacts = await importContacts(inputs);
