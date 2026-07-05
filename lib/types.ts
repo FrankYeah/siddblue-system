@@ -347,3 +347,48 @@ export interface Contact {
 
 /** 表單輸入 (不含系統欄位 id / createdAt / updatedAt) */
 export type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
+
+// ═════════════════════════════════════════════════════════════
+//  金流與支出管理 (Expense Tracking)
+//  公司／個人支出紀錄，用於算出每月固定開銷底線 (Burn Rate)
+// ═════════════════════════════════════════════════════════════
+
+/** 歸屬分類：公司支出 / 個人支出 */
+export type ExpenseEntity = "company" | "personal";
+
+/** 支出性質分類 */
+export type ExpenseCategory =
+  | "one-time" // 一次性
+  | "subscription" // 訂閱制
+  | "sponsorship" // 贊助/小額捐款
+  | "recurring"; // 固定週期規費 (保險、會計費…)
+
+/** 扣款週期 (供 Burn Rate 換算月支出；none = 不重複扣款) */
+export type BillingCycle = "none" | "monthly" | "yearly";
+
+/** 單筆支出紀錄 */
+export interface Expense {
+  /** 唯一識別碼 (nanoid 10) */
+  id: string;
+  /** 支出項目名稱 (如：Figma 訂閱、單次會計費、捐款) */
+  title: string;
+  /** 金額 */
+  amount: number;
+  /** 歸屬分類 (公司 / 個人) */
+  entity: ExpenseEntity;
+  /** 性質分類 (一次性 / 訂閱制 / 贊助 / 固定週期規費) */
+  category: ExpenseCategory;
+  /** 扣款週期 (不重複 / 每月 / 每年) */
+  billingCycle: BillingCycle;
+  /** 交易日期或下次扣款日 (YYYY-MM-DD) */
+  transactionDate: string;
+  /** 備註說明 */
+  note: string;
+  /** 建立時間 (ISO 字串) */
+  createdAt: string;
+  /** 最後更新時間 (ISO 字串) */
+  updatedAt: string;
+}
+
+/** 表單輸入 (不含系統欄位 id / createdAt / updatedAt) */
+export type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;

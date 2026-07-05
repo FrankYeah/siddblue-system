@@ -23,6 +23,8 @@ interface BackupCounts {
   notes: number;
   inspirations: number;
   todos: number;
+  /** 選填：新增支出模組前建立的舊快照沒有這個欄位 */
+  expenses?: number;
 }
 
 interface BackupMeta {
@@ -43,7 +45,7 @@ function fmt(iso: string) {
 }
 
 function summarize(c: BackupCounts) {
-  return `報價 ${c.quotes}・案件 ${c.cases}・人脈 ${c.contacts}・筆記 ${c.notes}・靈感 ${c.inspirations}・待辦 ${c.todos}`;
+  return `報價 ${c.quotes}・案件 ${c.cases}・人脈 ${c.contacts}・筆記 ${c.notes}・靈感 ${c.inspirations}・待辦 ${c.todos}・支出 ${c.expenses ?? 0}`;
 }
 
 export default function BackupPanel() {

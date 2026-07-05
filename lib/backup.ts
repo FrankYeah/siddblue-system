@@ -15,9 +15,11 @@ import {
   getContactsOrder,
   restoreContactsData,
 } from "./contacts-kv";
+import { getAllExpenses, restoreExpensesData } from "./expenses-kv";
 import type {
   Case,
   Contact,
+  Expense,
   InspirationBoard,
   Note,
   Quote,
@@ -28,7 +30,7 @@ import type {
 //  📦 資料備份與匯出 (Backup & Export)
 //
 //  匯出/快照涵蓋所有模組的完整資料：報價單、靈感看板、待辦清單、
-//  知識庫、案件管理、人脈庫 (含手動排序)。
+//  知識庫、案件管理、人脈庫 (含手動排序)、支出紀錄。
 //
 //  儲存結構：
 //    backups:index      → sorted set，member=備份 id，score=建立時間(ms)
@@ -73,6 +75,7 @@ export interface BackupCounts {
   notes: number;
   inspirations: number;
   todos: number;
+  expenses: number;
 }
 
 export interface BackupMeta {
@@ -91,6 +94,7 @@ export interface BackupPayload {
   cases: Case[];
   contacts: Contact[];
   contactsOrder: string[] | null;
+  expenses: Expense[];
 }
 
 function countBoard(board: InspirationBoard): number {
@@ -108,22 +112,32 @@ function toCounts(p: BackupPayload): BackupCounts {
     notes: p.notes.length,
     inspirations: countBoard(p.inspirations),
     todos: countTodos(p.todos),
+    expenses: p.expenses.length,
   };
 }
 
 /** 匯出目前全部資料 (供「匯出 JSON」與快照共用) */
 export async function exportAllData(): Promise<BackupPayload> {
   noStore();
-  const [quotes, inspirations, todos, notes, cases, contacts, contactsOrder] =
-    await Promise.all([
-      getAllQuotesFull(),
-      getInspirations(),
-      getTodos(),
-      getAllNotes(),
-      getAllCases(),
-      getAllContacts(),
-      getContactsOrder(),
-    ]);
+  const [
+    quotes,
+    inspirations,
+    todos,
+    notes,
+    cases,
+    contacts,
+    contactsOrder,
+    expenses,
+  ] = await Promise.all([
+    getAllQuotesFull(),
+    getInspirations(),
+    getTodos(),
+    getAllNotes(),
+    getAllCases(),
+    getAllContacts(),
+    getContactsOrder(),
+    getAllExpenses(),
+  ]);
   return {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
@@ -134,6 +148,7 @@ export async function exportAllData(): Promise<BackupPayload> {
     cases,
     contacts,
     contactsOrder,
+    expenses,
   };
 }
 
@@ -216,6 +231,7 @@ export async function restoreBackup(id: string): Promise<BackupMeta | null> {
     restoreNotesData(payload.notes),
     restoreCasesData(payload.cases),
     restoreContactsData(payload.contacts, payload.contactsOrder),
+    restoreExpensesData(payload.expenses ?? []),
   ]);
 
   return { id, exportedAt: payload.exportedAt, counts: toCounts(payload) };

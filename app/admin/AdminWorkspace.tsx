@@ -12,20 +12,30 @@ import TodoBoard from "./TodoBoard";
 import NotesBoard from "./NotesBoard";
 import CasesBoard from "./CasesBoard";
 import ContactsBoard from "./ContactsBoard";
+import ExpensesBoard from "./ExpensesBoard";
 import type {
   Case,
   Contact,
+  Expense,
   InspirationBoard as InspirationBoardData,
   Note,
   QuoteSummary,
   TodoBoard as TodoBoardData,
 } from "@/lib/types";
 
-type Tab = "quote" | "inspiration" | "todo" | "knowledge" | "cases" | "contacts";
+type Tab =
+  | "quote"
+  | "inspiration"
+  | "todo"
+  | "knowledge"
+  | "cases"
+  | "contacts"
+  | "expenses";
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "quote", icon: "💰", label: "報價系統" },
   { key: "cases", icon: "💼", label: "案件管理" },
+  { key: "expenses", icon: "💳", label: "支出紀錄" },
   { key: "inspiration", icon: "📝", label: "寫作靈感" },
   { key: "todo", icon: "✅", label: "待辦清單" },
   { key: "knowledge", icon: "📚", label: "知識庫" },
@@ -38,6 +48,7 @@ const SEARCH_PLACEHOLDER: Partial<Record<Tab, string>> = {
   knowledge: "搜尋筆記標題、內容或標籤…",
   cases: "搜尋案件名稱、備註或夥伴…",
   contacts: "搜尋姓名、職業、聯絡方式或備註…",
+  expenses: "搜尋支出名稱或備註…",
 };
 
 export default function AdminWorkspace({
@@ -48,6 +59,7 @@ export default function AdminWorkspace({
   initialCases,
   initialContacts,
   initialContactsOrdered,
+  initialExpenses,
   protectedMode,
 }: {
   initialQuotes: QuoteSummary[];
@@ -57,6 +69,7 @@ export default function AdminWorkspace({
   initialCases: Case[];
   initialContacts: Contact[];
   initialContactsOrdered: boolean;
+  initialExpenses: Expense[];
   protectedMode: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("quote");
@@ -197,11 +210,17 @@ export default function AdminWorkspace({
             searchQuery={tab === "contacts" ? search : ""}
           />
         </div>
+        <div className={tab === "expenses" ? "animate-fade-in" : "hidden"}>
+          <ExpensesBoard
+            initialExpenses={initialExpenses}
+            searchQuery={tab === "expenses" ? search : ""}
+          />
+        </div>
       </main>
 
-      {/* 手機版底部導覽 (Bottom Navigation)：6 個頁籤，字級縮小避免擠壓 */}
+      {/* 手機版底部導覽 (Bottom Navigation)：7 個頁籤，字級縮小避免擠壓 */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-paper-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur sm:hidden"
         aria-label="主要功能"
       >
         {TABS.map((t) => (

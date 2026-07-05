@@ -3,12 +3,13 @@
 > 西打藍好內容有限公司 — 報價單與規格生成工具
 > 最後更新：2026-07-06
 
-本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由六個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
+本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由七個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
 
 | 模組 | 用途 | 主要頁面 |
 | --- | --- | --- |
 | 💰 **報價單** | 建立/編輯報價單、產生對外連結、客戶線上確認、匯出 PDF/Excel/CSV | `/admin`（編輯）、`/quote/[id]`（對外） |
 | 💼 **案件管理** | 專案財務：關聯報價單、應收帳款（催款提醒）、合作夥伴費用（外包成本）、稅務代扣 → 自動計算實際淨利 | `/admin`（頁籤） |
+| 💳 **支出紀錄** | 公司／個人支出總覽，自動算出每月固定開銷底線 (Burn Rate)；Notion 風格資料表 + 篩選 | `/admin`（頁籤） |
 | 📝 **靈感看板** | 四欄看板（靈感池 / 長文電子報 / 短影片 / 已封存），拖曳切換狀態 | `/admin`（頁籤） |
 | ✅ **待辦清單** | 四區（立即處理 / 稍後再說 / 長期要做的事 / 外出待辦）極簡待辦 | `/admin`（頁籤） |
 | 📚 **知識庫** | 取代 Apple Notes：創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄；支援 Markdown、標籤、諮詢模板，可對外產生唯讀分享連結 | `/admin`（頁籤）、`/shared/note/[token]`（對外） |
@@ -60,6 +61,7 @@ siddblue-system/
 │   │   ├── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
 │   │   ├── CasesBoard.tsx        # 💼 案件管理（催款提醒 + 應收/應付 + 稅務 → 淨利）
 │   │   ├── ContactsBoard.tsx     # 🤝 人脈庫（Notion 風格資料表：dnd 排序 + Modal 編輯 + 逐列插入 + 篩選 + CSV 匯入）
+│   │   ├── ExpensesBoard.tsx     # 💳 支出紀錄（Burn Rate 統計卡 + Notion 風格資料表 + Modal 編輯）
 │   │   └── hooks.ts              # useQueuedSave（防 PUT 亂序）/ useSyncOnFocus（切回分頁重新同步）
 │   │
 │   ├── quote/[id]/               # 對外報價/規格確認頁
@@ -84,6 +86,8 @@ siddblue-system/
 │       ├── contacts/route.ts             # GET 列表 / POST 建立聯絡人（需登入）
 │       ├── contacts/[id]/route.ts        # GET / PUT / DELETE 單筆聯絡人（需登入）
 │       ├── contacts/import/route.ts      # POST 整批匯入聯絡人（CSV，需登入）
+│       ├── expenses/route.ts             # GET 列表 / POST 建立支出（需登入）
+│       ├── expenses/[id]/route.ts        # GET / PUT / DELETE 單筆支出（需登入）
 │       ├── matrix/route.ts               # POST ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入）
 │       ├── backup/export/route.ts        # GET 匯出全部資料 JSON（需登入）
 │       ├── backup/snapshot/route.ts      # GET 建立備份快照（Cron 或後台手動，見 §5.7）
@@ -107,6 +111,7 @@ siddblue-system/
 │   ├── cases-kv.ts               # 💼 案件管理 KV 存取層（CRUD + 索引 + 收付款歷程 + 備份還原）
 │   ├── contacts-kv.ts            # 🤝 人脈庫 KV 存取層（CRUD + pipeline 整批匯入 + 手動排序 + 備份還原）
 │   ├── contacts-sort.ts          # 人脈庫預設分組排序 + 職業別多值切分（client+server 共用）
+│   ├── expenses-kv.ts            # 💳 支出紀錄 KV 存取層（CRUD + 索引 + 備份還原）
 │   ├── finance.ts                # 案件財務計算：稅務代扣 + 外包成本 → 淨利 + 待付夥伴款彙總（client+server 共用）
 │   ├── contacts-csv.ts           # 人脈庫 CSV 匯入解析（表頭別名對應 + 評級正規化，前端）
 │   ├── backup.ts                 # 📦 資料備份：匯出/快照/列表/還原，7 份輪替（見 §5.7）
@@ -133,8 +138,8 @@ siddblue-system/
 - **樂觀更新 (Optimistic UI)**：靈感看板與待辦清單在本機先更新畫面，再 `PUT` 整個 board 回 KV，寫入後**不重新讀取**（故 Upstash 讀取複本延遲對使用者無影響）。
 - **防寫入亂序（`app/admin/hooks.ts` → `useQueuedSave`）**：整包覆寫 PUT 若併發送出，HTTP 回應順序不保證，舊請求可能最後落地、以舊蓋新。看板的 persist 一律經佇列：同時最多一個請求在途，期間的變更只保留最新酬載、完成後補送一次（序列化＋合併），連續快速拖曳也不會遺失資料。
 - **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。
-- **後台頁籤**：`AdminWorkspace` 一次掛載六個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。手機底部導覽為 6 欄。
-- **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加），案件比對名稱＋備註＋夥伴，人脈比對姓名＋職業＋聯絡方式＋網址＋備註。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
+- **後台頁籤**：`AdminWorkspace` 一次掛載七個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。手機底部導覽為 7 欄。
+- **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加），案件比對名稱＋備註＋夥伴，人脈比對姓名＋職業＋聯絡方式＋網址＋備註，支出比對項目名稱＋備註。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
 
 ---
 
@@ -156,6 +161,8 @@ Vercel KV（Upstash Redis）中的所有 key：
 | `contact:{id}` | JSON (string) | 單筆聯絡人 `Contact` | `lib/contacts-kv.ts` |
 | `contacts:index` | Sorted Set | 索引；`member = id`，`score = updatedAt(ms)`（資料表的後備排序） | `lib/contacts-kv.ts` |
 | `contacts:order` | JSON (string[]) | 資料表**手動拖曳後的顯示順序**（id 陣列，整包覆寫）；不存在 = 未手動排序，套用預設分組排序 | `lib/contacts-kv.ts` |
+| `expense:{id}` | JSON (string) | 單筆支出 `Expense` | `lib/expenses-kv.ts` |
+| `expenses:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/expenses-kv.ts` |
 | `backups:index` | Sorted Set | 備份快照索引；`member = 備份 id`，`score = 建立時間(ms)` | `lib/backup.ts` |
 | `backup:meta:{id}` | JSON (string) | 單份備份的輕量摘要（時間 + 各模組筆數），列表用 | `lib/backup.ts` |
 | `backup:data:{id}` | JSON (string) | 單份備份的完整資料，只在還原時讀取 | `lib/backup.ts` |
@@ -405,6 +412,37 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
   - 值正規化：`高/中/低/不確定`→`high/medium/low/unknown`（複合值如「中, 高」取較明確者：高 > 低 > 中；未填/無法辨識→`unknown`）、`就業/接案/創業/學生`→`employed/freelance/startup/student`（未填→`unknown`）、含「業界/網紅/互惠」→`industry`（預設 `project`）。缺姓名的資料列略過。
   - 伺服器端以 **KV pipeline** 一次寫入（單批上限 500 筆），依 CSV 順序遞增時間戳確保索引排序穩定。
 
+### 3.7 Expense（支出紀錄）
+
+```ts
+type ExpenseEntity = "company" | "personal";           // 歸屬：公司支出 / 個人支出
+type ExpenseCategory =
+  | "one-time" | "subscription" | "sponsorship" | "recurring";
+  // 一次性 / 訂閱制 / 贊助・小額捐款 / 固定週期規費 (保險、會計費…)
+type BillingCycle = "none" | "monthly" | "yearly";      // 不重複 / 每月 / 每年扣款
+
+interface Expense {
+  id: string;                    // nanoid(10)
+  title: string;                 // 支出項目名稱 (如：Figma 訂閱、單次會計費、捐款)
+  amount: number;
+  entity: ExpenseEntity;         // 公司 / 個人
+  category: ExpenseCategory;     // 性質分類 (與 billingCycle 為獨立兩軸，互不影響)
+  billingCycle: BillingCycle;    // 扣款週期，供 Burn Rate 換算月支出
+  transactionDate: string;       // YYYY-MM-DD，交易日期或下次扣款日
+  note: string;
+  createdAt: string;             // ISO
+  updatedAt: string;             // ISO
+}
+
+type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
+```
+
+- **逐筆 CRUD + 索引**（同案件/人脈庫）：`expense:{id}` + `expenses:index`。
+- **資料表 + Modal UI（`ExpensesBoard`）**：Notion 風格全寬資料表——每列直接顯示 項目名稱／歸屬／分類／週期／金額／日期／備註（`line-clamp-2`），點列彈出置中 Modal 編輯；頂部「新增支出」直接開空白 Modal（沿用 `ContactsBoard` 的慣例：新增模式不依 `dirty` 鎖 Save 按鈕，編輯模式才鎖）。手機 `overflow-x-auto`（min-w 820px），統計卡在 `grid-cols-1 sm:grid-cols-2` 下自動垂直堆疊。
+  > ⚠️ 表頭旁的「新增支出」按鈕務必加 `shrink-0 whitespace-nowrap`：手機窄版若標題／說明文字把按鈕擠到極窄，CJK 文字（無空格）會在任意字元間斷行，導致按鈕文字直排——這是本模組實作時抓到並修正過的真實 bug，其他頁籤新增按鈕若照抄此標頭排版務必留意同一陷阱。
+- **每月固定支出 (Burn Rate)**：`ExpensesBoard` 內的 `monthlyEquivalent(e)` 依 `entity` 分組加總——`billingCycle === "monthly"` 全額計入、`"yearly"` 除以 12 計入、`"none"`（一次性／贊助）不計入；與 `category` 完全獨立（不因分類是「訂閱制」而自動視為週期扣款，一律看 `billingCycle`）。衍生值不落地，切換頁籤或編輯後即時重算。
+- 金額經 `toAmount()` 清理（同 Case/Contact 慣例）：取整數、擋負值與超過 10 億的離譜值；`transactionDate` 非 `YYYY-MM-DD` 格式時退回建立日期或今天。
+
 ---
 
 ## 4. API Endpoints
@@ -441,6 +479,11 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 | `PUT /api/contacts/[id]` | 更新聯絡人（保留 `id`/`createdAt`） | 需登入 | `updateContact()` |
 | `DELETE /api/contacts/[id]` | 刪除聯絡人（同時移出 index） | 需登入 | `deleteContact()` |
 | `POST /api/contacts/import` | 整批匯入聯絡人，body `{ contacts: ContactInput[] }`（單批 ≤ 500 筆，KV pipeline 寫入） | 需登入 | `importContacts()` |
+| `GET /api/expenses` | 列出所有支出（新→舊） | 需登入 | `getAllExpenses()` |
+| `POST /api/expenses` | 建立新支出 | 需登入 | `createExpense()` |
+| `GET /api/expenses/[id]` | 讀取單筆支出 | 需登入 | `getExpense()` |
+| `PUT /api/expenses/[id]` | 更新支出（保留 `id`/`createdAt`） | 需登入 | `updateExpense()` |
+| `DELETE /api/expenses/[id]` | 刪除支出（同時移出 index） | 需登入 | `deleteExpense()` |
 | `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `OPENAI_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/openai，`gpt-4o`） |
 | `GET /api/backup/export` | 匯出目前全部資料為 JSON 檔（`Content-Disposition: attachment`） | 需登入 | `exportAllData()` |
 | `GET /api/backup/snapshot` | 建立一份備份快照，自動輪替只保留最近 7 份 | 需登入 **或** Cron（見 §5.7） | `snapshotBackup()` |
@@ -580,10 +623,10 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 
 系統的所有資料都在同一個 Upstash KV 執行個體，看板類又是整包覆寫——一次寫入錯誤就可能蓋掉全部資料，因此設計了獨立的備份層：
 
-- **匯出（`exportAllData()`）**：平行讀取六個模組的完整資料（報價單、靈感看板、待辦清單、知識庫、案件管理、人脈庫含手動排序），組成單一 `BackupPayload` JSON 物件。`GET /api/backup/export` 直接回傳此物件並帶 `Content-Disposition: attachment`，後台按「匯出 JSON」即下載。
+- **匯出（`exportAllData()`）**：平行讀取七個模組的完整資料（報價單、靈感看板、待辦清單、知識庫、案件管理、人脈庫含手動排序、支出紀錄），組成單一 `BackupPayload` JSON 物件。`GET /api/backup/export` 直接回傳此物件並帶 `Content-Disposition: attachment`，後台按「匯出 JSON」即下載。
 - **快照（`snapshotBackup()`）**：呼叫 `exportAllData()`，以 `nanoid(12)` 產生備份 id，寫入 `backup:data:{id}`（完整內容）與 `backup:meta:{id}`（時間 + 各模組筆數的輕量摘要），並把 id 存進 `backups:index`（sorted set，score=建立時間）。**輪替**：寫入後檢查 `backups:index` 筆數，超過 7 份即刪除最舊的（`rotateBackups()`）。
 - **列表（`listBackups()`）**：只讀取輕量的 `backup:meta:{id}`，不觸碰大型的 `backup:data:{id}`，列表載入快速。
-- **還原（`restoreBackup(id)`）**——⚠️ **危險操作**：讀出該快照的完整 payload，平行呼叫六個模組各自的 `restore*()` 函式（`restoreQuotes()` / `saveInspirations()` / `saveTodos()` / `restoreNotesData()` / `restoreCasesData()` / `restoreContactsData()`），每個都是「先清空現有全部 key、再依快照內容重新寫入」，讓還原後的狀態與快照當時**完全一致**（而非合併）。UI 層（`BackupPanel`）在呼叫前以 `window.confirm()` 顯示快照時間與各模組筆數，要求使用者二次確認；還原成功後自動重整頁面。
+- **還原（`restoreBackup(id)`）**——⚠️ **危險操作**：讀出該快照的完整 payload，平行呼叫七個模組各自的 `restore*()` 函式（`restoreQuotes()` / `saveInspirations()` / `saveTodos()` / `restoreNotesData()` / `restoreCasesData()` / `restoreContactsData()` / `restoreExpensesData()`），每個都是「先清空現有全部 key、再依快照內容重新寫入」，讓還原後的狀態與快照當時**完全一致**（而非合併）。`payload.expenses ?? []` 相容新增支出模組前建立的舊快照（缺此欄位）。UI 層（`BackupPanel`）在呼叫前以 `window.confirm()` 顯示快照時間與各模組筆數，要求使用者二次確認；還原成功後自動重整頁面。
 - **每日自動快照（Vercel Cron）**：`vercel.json` 設定 `crons: [{ path: "/api/backup/snapshot", schedule: "0 18 * * *" }]`（UTC 18:00 = 台北 02:00）。Vercel Cron 只送 `GET`；`/api/backup/snapshot` 的 `isCronOrAdmin()` 判斷請求是否帶有 `Authorization: Bearer <CRON_SECRET>`（Vercel 在設定 `CRON_SECRET` 環境變數後會自動附加此標頭），否則退回一般的 `isAuthenticated()` cookie 驗證（供後台「立即備份」手動按鈕使用）。
   > ⚠️ 需在 **Vercel Dashboard → Project → Settings → Environment Variables** 手動設定 `CRON_SECRET`（任意隨機字串，如 `openssl rand -hex 32`）才能讓每日排程通過驗證；未設定前，排程呼叫會被拒絕（401），但手動備份按鈕不受影響。
 - **記憶體後援**：本機無 KV 時，快照存於 `globalThis.__sbBackupsMem`（同其餘 `*-kv.ts` 慣例），重啟即清空，方便安全地在本機測試還原流程而不動到正式 KV。

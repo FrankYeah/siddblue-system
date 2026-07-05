@@ -4,6 +4,7 @@ import { getInspirations, getTodos } from "@/lib/workspace-kv";
 import { getAllNotes } from "@/lib/notes-kv";
 import { getAllCases } from "@/lib/cases-kv";
 import { getContactsView } from "@/lib/contacts-kv";
+import { getAllExpenses } from "@/lib/expenses-kv";
 import AdminLogin from "./AdminLogin";
 import AdminWorkspace from "./AdminWorkspace";
 
@@ -14,7 +15,7 @@ export default async function AdminPage() {
     return <AdminLogin />;
   }
 
-  const [quotes, inspirations, todos, notes, cases, contactsView] =
+  const [quotes, inspirations, todos, notes, cases, contactsView, expenses] =
     await Promise.all([
       listQuotes(),
       getInspirations(),
@@ -22,6 +23,7 @@ export default async function AdminPage() {
       getAllNotes(),
       getAllCases(),
       getContactsView(),
+      getAllExpenses(),
     ]);
 
   return (
@@ -33,6 +35,7 @@ export default async function AdminPage() {
       initialCases={cases}
       initialContacts={contactsView.contacts}
       initialContactsOrdered={contactsView.ordered}
+      initialExpenses={expenses}
       protectedMode={adminPasswordSet()}
     />
   );
