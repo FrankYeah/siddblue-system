@@ -41,6 +41,15 @@ type Draft = {
   isShared: boolean;
 };
 
+/**
+ * 標籤瀏覽器的篩選狀態（仿 iPhone 備忘錄：標籤＝虛擬分類）。
+ * 用 kind 分辨而非以字串當哨兵值，避免真實標籤剛好撞名。
+ */
+type TagFilter =
+  | { kind: "all" }
+  | { kind: "untagged" }
+  | { kind: "tag"; tag: string };
+
 const EMPTY_DRAFT: Draft = {
   title: "",
   content: "",
@@ -73,7 +82,7 @@ export default function NotesBoard({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [query, setQuery] = useState("");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<TagFilter>({ kind: "all" });
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -93,11 +102,19 @@ export default function NotesBoard({
     ? `${origin}/shared/note/${selected.shareToken}`
     : "";
 
-  const allTags = useMemo(() => {
-    const s = new Set<string>();
-    notes.forEach((n) => n.tags.forEach((t) => s.add(t)));
-    return Array.from(s).sort();
+  // 標籤瀏覽器：依使用次數排序（同次數依字母排序），量變多時常用標籤永遠在前面
+  const sortedTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    notes.forEach((n) => n.tags.forEach((t) => counts.set(t, (counts.get(t) ?? 0) + 1)));
+    return Array.from(counts.entries()).sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-Hant"),
+    );
   }, [notes]);
+
+  const untaggedCount = useMemo(
+    () => notes.filter((n) => n.tags.length === 0).length,
+    [notes],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -107,12 +124,15 @@ export default function NotesBoard({
       n.content.toLowerCase().includes(needle) ||
       n.tags.some((t) => t.toLowerCase().includes(needle));
     return notes.filter((n) => {
-      if (activeTag && !n.tags.includes(activeTag)) return false;
+      if (tagFilter.kind === "tag" && !n.tags.includes(tagFilter.tag)) {
+        return false;
+      }
+      if (tagFilter.kind === "untagged" && n.tags.length > 0) return false;
       if (gq && !matches(n, gq)) return false;
       if (q && !matches(n, q)) return false;
       return true;
     });
-  }, [notes, query, activeTag, searchQuery]);
+  }, [notes, query, tagFilter, searchQuery]);
 
   const dirty = selected
     ? draft.title !== selected.title ||
@@ -276,23 +296,57 @@ export default function NotesBoard({
             </button>
           </div>
 
-          {allTags.length > 0 && (
+          {/* 標籤瀏覽器（仿 iPhone 備忘錄）：標籤即虛擬分類，依使用次數排序 + 顯示筆記數，
+              量變多時常用分類永遠在最前面，「未加標籤」避免漏標的筆記被淹沒找不到。 */}
+          {notes.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-1.5">
-              {allTags.map((tag) => (
+              <button
+                onClick={() => setTagFilter({ kind: "all" })}
+                className={`rounded-full px-2.5 py-0.5 text-xs transition ${
+                  tagFilter.kind === "all"
+                    ? "bg-brand-600 text-white"
+                    : "bg-paper-block text-paper-muted hover:bg-paper-border"
+                }`}
+              >
+                全部筆記 <span className="opacity-70">{notes.length}</span>
+              </button>
+              {sortedTags.map(([tag, count]) => {
+                const active = tagFilter.kind === "tag" && tagFilter.tag === tag;
+                return (
+                  <button
+                    key={tag}
+                    onClick={() =>
+                      setTagFilter(active ? { kind: "all" } : { kind: "tag", tag })
+                    }
+                    className={`rounded-full px-2.5 py-0.5 text-xs transition ${
+                      active
+                        ? "bg-brand-600 text-white"
+                        : "bg-paper-block text-paper-muted hover:bg-paper-border"
+                    }`}
+                  >
+                    # {tag} <span className="opacity-70">{count}</span>
+                  </button>
+                );
+              })}
+              {untaggedCount > 0 && (
                 <button
-                  key={tag}
                   onClick={() =>
-                    setActiveTag((a) => (a === tag ? null : tag))
+                    setTagFilter(
+                      tagFilter.kind === "untagged"
+                        ? { kind: "all" }
+                        : { kind: "untagged" },
+                    )
                   }
                   className={`rounded-full px-2.5 py-0.5 text-xs transition ${
-                    activeTag === tag
+                    tagFilter.kind === "untagged"
                       ? "bg-brand-600 text-white"
                       : "bg-paper-block text-paper-muted hover:bg-paper-border"
                   }`}
                 >
-                  # {tag}
+                  未加標籤{" "}
+                  <span className="opacity-70">{untaggedCount}</span>
                 </button>
-              ))}
+              )}
             </div>
           )}
 

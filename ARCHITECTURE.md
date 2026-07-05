@@ -307,6 +307,7 @@ interface Note {
 - **對外分享**：`/shared/note/[token]` Server Component 以 `getNoteByShareToken()` 反查；找不到或 `isShared === false` 一律 `notFound()`（不洩漏是否存在）。內容經 `lib/markdown.ts` 轉為**白名單 HTML** 後唯讀呈現。
 - **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。
 - 讀取時經 `migrateNote()` 清理/補齊（缺 `shareToken`/`type` 補預設、標籤去重、超長截斷）。
+- **標籤瀏覽器（`NotesBoard` 左側，仿 iPhone 備忘錄）**：標籤即虛擬分類，依使用次數排序（同次數依 zh-Hant 字母序）、每個標籤旁顯示筆記數；固定附「全部筆記」（重置）與「未加標籤」（`tags.length === 0`）兩個虛擬分類，避免筆記量變多後漏標的筆記被淹沒找不到。篩選狀態以 `TagFilter`（`{kind:"all"|"untagged"|"tag"}` 判別式）表示，而非拿字串當哨兵值，避免真實標籤剛好撞名；與列表內搜尋、全域搜尋框皆為 AND 疊加。
 
 ### 3.5 Case（案件與財務管理）
 
