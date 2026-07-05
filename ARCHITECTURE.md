@@ -10,7 +10,7 @@
 | 💰 **報價單** | 建立/編輯報價單、產生對外連結、客戶線上確認、匯出 PDF/Excel/CSV | `/admin`（編輯）、`/quote/[id]`（對外） |
 | 💼 **案件管理** | 專案財務：關聯報價單、應收帳款（催款提醒）、合作夥伴費用（外包成本）、稅務代扣 → 自動計算實際淨利 | `/admin`（頁籤） |
 | 📝 **靈感看板** | 四欄看板（靈感池 / 長文電子報 / 短影片 / 已封存），拖曳切換狀態 | `/admin`（頁籤） |
-| ✅ **待辦清單** | 三區（立即處理 / 稍後再說 / 長期要做的事）極簡待辦 | `/admin`（頁籤） |
+| ✅ **待辦清單** | 四區（立即處理 / 稍後再說 / 長期要做的事 / 外出待辦）極簡待辦 | `/admin`（頁籤） |
 | 📚 **知識庫** | 取代 Apple Notes：創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄；支援 Markdown、標籤、諮詢模板，可對外產生唯讀分享連結 | `/admin`（頁籤）、`/shared/note/[token]`（對外） |
 | 🤝 **人脈庫** | Connections CRM，**Notion 風格資料表**：點列開 Modal 編輯、拖曳排序（順序持久化）、逐列「＋」插入、職業別/合作方向篩選、預設同職業別分組；支援 CSV 整批匯入 | `/admin`（頁籤） |
 
@@ -268,8 +268,8 @@ type InspirationBoard = Record<InspirationStatus, Inspiration[]>;
 ### 3.3 TodoBoard（待辦清單）
 
 ```ts
-type TodoBucket = "now" | "later" | "longterm";
-// 🔥 立即處理 / ⏳ 稍後再說 / 🎯 長期要做的事
+type TodoBucket = "now" | "later" | "longterm" | "errand";
+// 🔥 立即處理 / ⏳ 稍後再說 / 🎯 長期要做的事 / 🚗 外出待辦
 
 interface Todo {
   id: string;
@@ -277,8 +277,9 @@ interface Todo {
 }
 
 type TodoBoard = Record<TodoBucket, Todo[]>;
-// = { now: [...], later: [...], longterm: [...] }
-// 舊資料只有 now/later，讀取時 sanitizeTodoBoard() 會以 emptyTodoBoard() 為底補上 longterm: []
+// = { now: [...], later: [...], longterm: [...], errand: [...] }
+// 舊資料缺少後來新增的分區 (longterm / errand)，讀取時 sanitizeTodoBoard()
+// 會以 emptyTodoBoard() 為底補上缺的分區為 []，同一慣例可持續擴充新分區
 ```
 
 - 極簡設計：刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）。

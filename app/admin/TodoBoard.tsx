@@ -15,6 +15,7 @@ const BUCKETS: { key: TodoBucket; title: string; accent: string }[] = [
   { key: "now", title: "🔥 立即處理", accent: "border-t-red-400" },
   { key: "later", title: "⏳ 稍後再說", accent: "border-t-brand-400" },
   { key: "longterm", title: "🎯 長期要做的事", accent: "border-t-emerald-400" },
+  { key: "errand", title: "🚗 外出待辦", accent: "border-t-violet-400" },
 ];
 
 function newId() {
@@ -34,6 +35,7 @@ export default function TodoBoard({
     now: "",
     later: "",
     longterm: "",
+    errand: "",
   });
   const [editing, setEditing] = useState<{ bucket: TodoBucket; id: string } | null>(
     null,
@@ -145,6 +147,7 @@ export default function TodoBoard({
       now: [...board.now],
       later: [...board.later],
       longterm: [...board.longterm],
+      errand: [...board.errand],
     };
     const [moved] = next[from].splice(source.index, 1);
     if (!moved) return;
@@ -153,7 +156,7 @@ export default function TodoBoard({
   }
 
   const grid = (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       {BUCKETS.map((b) => (
         <div
           key={b.key}

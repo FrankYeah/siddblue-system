@@ -45,14 +45,14 @@ const INSPIRATION_STATUSES: InspirationStatus[] = [
   "shortvideo",
   "archived",
 ];
-const TODO_BUCKETS: TodoBucket[] = ["now", "later", "longterm"];
+const TODO_BUCKETS: TodoBucket[] = ["now", "later", "longterm", "errand"];
 
 export function emptyInspirationBoard(): InspirationBoard {
   return { idea: [], newsletter: [], shortvideo: [], archived: [] };
 }
 
 export function emptyTodoBoard(): TodoBoard {
-  return { now: [], later: [], longterm: [] };
+  return { now: [], later: [], longterm: [], errand: [] };
 }
 
 // ── 清理 / 補齊 (防止壞資料) ──
