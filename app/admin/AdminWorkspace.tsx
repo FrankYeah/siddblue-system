@@ -4,6 +4,7 @@ import { useState } from "react";
 import { LogOut, Search, X } from "lucide-react";
 import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
 import BankInfoPanel from "@/components/BankInfoPanel";
+import BackupPanel from "@/components/BackupPanel";
 import { COMPANY_NAME } from "@/lib/defaults";
 import AdminEditor from "./AdminEditor";
 import InspirationBoard from "./InspirationBoard";
@@ -104,6 +105,9 @@ export default function AdminWorkspace({
 
           {/* 🏦 銀行帳戶快捷面板（全域常駐，一鍵複製給客戶） */}
           <BankInfoPanel />
+
+          {/* 📦 資料備份與匯出（全域常駐：匯出 JSON / 立即備份 / 還原） */}
+          <BackupPanel />
 
           {/* 🔍 全域搜尋框（導覽列下方、頁籤上方；僅支援搜尋的頁籤顯示）
               手機 UX：min-h 44px 觸控高度、text-base(16px) 防 iOS 聚焦自動縮放、w-full 不被擠壓 */}

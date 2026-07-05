@@ -7,6 +7,7 @@ import type {
   CaseType,
   PartnerCost,
   PartnerPayStatus,
+  PaymentEntry,
 } from "./types";
 
 // ─────────────────────────────────────────────────────────────
@@ -49,21 +50,100 @@ function toAmount(raw: unknown): number {
   return Math.min(Math.max(Math.round(n), 0), 1_000_000_000);
 }
 
-function sanitizePartnerCosts(raw: unknown): PartnerCost[] {
+/** 日期清理：非法/空值一律退回 fallbackDate (YYYY-MM-DD) */
+function toDateStr(raw: unknown, fallbackDate: string): string {
+  const s = String(raw ?? "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallbackDate;
+}
+
+function sanitizePaymentEntries(
+  raw: unknown,
+  fallbackDate: string,
+): PaymentEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 200).map((e) => ({
+    id: String(e?.id || nanoid(10)),
+    date: toDateStr(e?.date, fallbackDate),
+    amount: toAmount(e?.amount),
+    note: String(e?.note ?? "").slice(0, 200),
+  }));
+}
+
+function paymentsTotal(entries: PaymentEntry[]): number {
+  return entries.reduce((sum, e) => sum + e.amount, 0);
+}
+
+/**
+ * 合作夥伴費用：payments 為新的收付款歷程來源，paidAmount 一律由此加總衍生。
+ * 相容舊資料 —— 曾以單一「已付金額」記錄、尚無逐筆紀錄時，
+ * 自動轉為一筆「既有已付金額」的歷史快照，確保金額不會被這次改版清零。
+ */
+function sanitizePartnerCosts(
+  raw: unknown,
+  fallbackDate: string,
+): PartnerCost[] {
   if (!Array.isArray(raw)) return [];
   return raw.slice(0, 50).map((p) => {
     const amount = toAmount(p?.amount);
+    let payments = sanitizePaymentEntries(p?.payments, fallbackDate);
+    if (payments.length === 0) {
+      const legacyPaid = toAmount(p?.paidAmount);
+      if (legacyPaid > 0) {
+        payments = [
+          {
+            id: nanoid(10),
+            date: fallbackDate,
+            amount: legacyPaid,
+            note: "既有已付金額（系統轉入）",
+          },
+        ];
+      }
+    }
     return {
       id: String(p?.id || nanoid(10)),
       partnerName: String(p?.partnerName ?? "").slice(0, 100),
       contactId: String(p?.contactId ?? ""),
       role: String(p?.role ?? "").slice(0, 100),
       amount,
-      // 已付金額不得超過應付金額 (舊資料缺欄位時補 0)
-      paidAmount: Math.min(toAmount(p?.paidAmount), amount),
+      payments,
+      // 已付金額不得超過應付金額，一律由 payments 加總衍生 (不可由前端覆寫)
+      paidAmount: Math.min(paymentsTotal(payments), amount),
       payStatus: PAY_STATUSES.includes(p?.payStatus) ? p.payStatus : "unpaid",
     };
   });
+}
+
+/**
+ * 收款紀錄：receivedPayments 為新的收付款歷程來源，receivedAmount 一律由此加總衍生。
+ * 相容舊資料 —— 曾以單一「已收款」記錄、尚無逐筆紀錄時，
+ * 自動轉為一筆「既有已收款」的歷史快照，確保金額不會被這次改版清零。
+ */
+function deriveReceived(
+  rawReceivedPayments: unknown,
+  legacyReceivedAmount: unknown,
+  fallbackDate: string,
+): { receivedAmount: number; receivedPayments: PaymentEntry[] } {
+  let receivedPayments = sanitizePaymentEntries(
+    rawReceivedPayments,
+    fallbackDate,
+  );
+  if (receivedPayments.length === 0) {
+    const legacy = toAmount(legacyReceivedAmount);
+    if (legacy > 0) {
+      receivedPayments = [
+        {
+          id: nanoid(10),
+          date: fallbackDate,
+          amount: legacy,
+          note: "既有已收款（系統轉入）",
+        },
+      ];
+    }
+  }
+  return {
+    receivedAmount: paymentsTotal(receivedPayments),
+    receivedPayments,
+  };
 }
 
 function migrateCase(raw: Case | null): Case | null {
@@ -73,18 +153,26 @@ function migrateCase(raw: Case | null): Case | null {
     ? raw.caseType
     : "own";
   const isInvoice = caseType === "invoice";
+  const createdAt = String(raw.createdAt || new Date().toISOString());
+  const fallbackDate = createdAt.slice(0, 10);
+  const { receivedAmount, receivedPayments } = deriveReceived(
+    raw.receivedPayments,
+    raw.receivedAmount,
+    fallbackDate,
+  );
   return {
     id: String(raw.id),
     name: String(raw.name ?? "").slice(0, 300),
     caseType,
     quoteId: String(raw.quoteId ?? ""),
     totalAmount: toAmount(raw.totalAmount),
-    receivedAmount: toAmount(raw.receivedAmount),
+    receivedAmount,
+    receivedPayments,
     withholdBusinessTax: isInvoice && Boolean(raw.withholdBusinessTax),
     withholdIncomeTax: isInvoice && Boolean(raw.withholdIncomeTax),
-    partnerCosts: sanitizePartnerCosts(raw.partnerCosts),
+    partnerCosts: sanitizePartnerCosts(raw.partnerCosts, fallbackDate),
     note: String(raw.note ?? "").slice(0, 5000),
-    createdAt: String(raw.createdAt || new Date().toISOString()),
+    createdAt,
     updatedAt: String(raw.updatedAt || new Date().toISOString()),
   };
 }
@@ -95,16 +183,23 @@ function cleanInput(input: CaseInput): CaseInput {
     ? input.caseType
     : "own";
   const isInvoice = caseType === "invoice";
+  const today = new Date().toISOString().slice(0, 10);
+  const { receivedAmount, receivedPayments } = deriveReceived(
+    input?.receivedPayments,
+    input?.receivedAmount,
+    today,
+  );
   return {
     name: String(input?.name ?? "").slice(0, 300),
     caseType,
     quoteId: String(input?.quoteId ?? ""),
     totalAmount: toAmount(input?.totalAmount),
-    receivedAmount: toAmount(input?.receivedAmount),
+    receivedAmount,
+    receivedPayments,
     // 稅務代扣只屬於「幫朋友開發票」型；own 型一律 false
     withholdBusinessTax: isInvoice && Boolean(input?.withholdBusinessTax),
     withholdIncomeTax: isInvoice && Boolean(input?.withholdIncomeTax),
-    partnerCosts: sanitizePartnerCosts(input?.partnerCosts),
+    partnerCosts: sanitizePartnerCosts(input?.partnerCosts, today),
     note: String(input?.note ?? "").slice(0, 5000),
   };
 }
@@ -191,6 +286,31 @@ export async function getAllCases(): Promise<Case[]> {
     .map((c) => migrateCase(c))
     .filter((c): c is Case => Boolean(c))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/**
+ * 完整覆寫案件資料 (備份還原用)：清空現有全部，寫入 snapshot 內容。
+ * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
+ */
+export async function restoreCasesData(cases: Case[]): Promise<void> {
+  if (KV_ENABLED) {
+    const existingIds =
+      (await kv.zrange<string[]>(CASE_INDEX_KEY, 0, -1)) ?? [];
+    if (existingIds.length > 0) {
+      await Promise.all(existingIds.map((id) => kv.del(CASE_KEY(id))));
+      await kv.del(CASE_INDEX_KEY);
+    }
+    for (const c of cases) {
+      await kv.set(CASE_KEY(c.id), c);
+      await kv.zadd(CASE_INDEX_KEY, {
+        score: new Date(c.updatedAt).getTime() || Date.now(),
+        member: c.id,
+      });
+    }
+  } else {
+    memStore.clear();
+    cases.forEach((c) => memStore.set(c.id, c));
+  }
 }
 
 export { KV_ENABLED };

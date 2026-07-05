@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
       quoteId: input?.quoteId ?? "",
       totalAmount: input?.totalAmount ?? 0,
       receivedAmount: input?.receivedAmount ?? 0,
+      receivedPayments: input?.receivedPayments ?? [],
       withholdBusinessTax: input?.withholdBusinessTax ?? false,
       withholdIncomeTax: input?.withholdIncomeTax ?? false,
       partnerCosts: input?.partnerCosts ?? [],

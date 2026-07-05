@@ -9,6 +9,7 @@ import {
   Save,
   Briefcase,
   BellRing,
+  HandCoins,
   Link2,
   Users,
   X,
@@ -16,7 +17,11 @@ import {
   Check,
   ExternalLink,
 } from "lucide-react";
-import { computeCaseFinance } from "@/lib/finance";
+import {
+  computeCaseFinance,
+  collectPartnerDues,
+  partnerCostPaid,
+} from "@/lib/finance";
 import { formatNT, formatCurrency } from "@/lib/format";
 import type {
   Case,
@@ -25,6 +30,7 @@ import type {
   Contact,
   PartnerCost,
   PartnerPayStatus,
+  PaymentEntry,
   QuoteSummary,
 } from "@/lib/types";
 
@@ -40,6 +46,7 @@ const EMPTY_DRAFT: CaseInput = {
   quoteId: "",
   totalAmount: 0,
   receivedAmount: 0,
+  receivedPayments: [],
   withholdBusinessTax: false,
   withholdIncomeTax: false,
   partnerCosts: [],
@@ -85,11 +92,112 @@ function caseToDraft(c: Case): CaseInput {
     quoteId: c.quoteId,
     totalAmount: c.totalAmount,
     receivedAmount: c.receivedAmount,
+    receivedPayments: c.receivedPayments.map((e) => ({ ...e })),
     withholdBusinessTax: c.withholdBusinessTax,
     withholdIncomeTax: c.withholdIncomeTax,
-    partnerCosts: c.partnerCosts.map((p) => ({ ...p })),
+    partnerCosts: c.partnerCosts.map((p) => ({
+      ...p,
+      payments: p.payments.map((e) => ({ ...e })),
+    })),
     note: c.note,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  收/付款紀錄 (Payment Ledger)：取代單一數字，逐筆記錄日期＋金額＋備註。
+//  case 收款與夥伴付款共用同一元件；onChange 回傳新陣列，呼叫端自行加總。
+// ─────────────────────────────────────────────────────────────
+function PaymentLedger({
+  entries,
+  onChange,
+  addLabel,
+}: {
+  entries: PaymentEntry[];
+  onChange: (next: PaymentEntry[]) => void;
+  addLabel: string;
+}) {
+  function add() {
+    onChange([
+      ...entries,
+      {
+        id: nanoid(10),
+        date: new Date().toISOString().slice(0, 10),
+        amount: 0,
+        note: "",
+      },
+    ]);
+  }
+  function patch(id: string, patch: Partial<PaymentEntry>) {
+    onChange(entries.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  }
+  function remove(id: string) {
+    onChange(entries.filter((e) => e.id !== id));
+  }
+  const total = entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  return (
+    <div>
+      {entries.length > 0 && (
+        <div className="mb-1.5 space-y-1.5">
+          {entries
+            .slice()
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((e) => (
+              <div key={e.id} className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  className="field-input min-w-0 flex-[1.2] text-xs"
+                  value={e.date}
+                  onChange={(ev) => patch(e.id, { date: ev.target.value })}
+                />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  className="field-input min-w-0 flex-1 text-xs"
+                  placeholder="金額"
+                  value={e.amount === 0 ? "" : e.amount}
+                  onChange={(ev) => {
+                    const n = Number(ev.target.value);
+                    patch(e.id, {
+                      amount: Number.isFinite(n) && n > 0 ? Math.round(n) : 0,
+                    });
+                  }}
+                />
+                <input
+                  className="field-input min-w-0 flex-[1.4] text-xs"
+                  placeholder="備註（如：頭期款）"
+                  value={e.note}
+                  onChange={(ev) => patch(e.id, { note: ev.target.value })}
+                />
+                <button
+                  onClick={() => remove(e.id)}
+                  className="shrink-0 rounded-md p-1.5 text-paper-muted transition hover:bg-red-50 hover:text-red-600"
+                  title="移除此筆紀錄"
+                  aria-label="移除此筆紀錄"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={add}
+          className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 transition hover:text-brand-700"
+        >
+          <Plus size={13} /> {addLabel}
+        </button>
+        <span className="text-xs text-paper-muted">
+          合計{" "}
+          <span className="font-semibold text-paper-text">
+            {formatNT(total)}
+          </span>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -292,6 +400,29 @@ export default function CasesBoard({
   const [saving, setSaving] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
   const [toast, setToast] = useState("");
+  // 展開狀態：夥伴付款紀錄 (Modal 內，key=partnerCost id)、待付夥伴款明細 (key=PartnerDue.key)
+  const [expandedPayments, setExpandedPayments] = useState<Set<string>>(
+    new Set(),
+  );
+  const [expandedDues, setExpandedDues] = useState<Set<string>>(new Set());
+
+  function togglePaymentsExpanded(id: string) {
+    setExpandedPayments((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleDueExpanded(key: string) {
+    setExpandedDues((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function flash(msg: string) {
     setToast(msg);
@@ -311,6 +442,9 @@ export default function CasesBoard({
         .sort((a, b) => b.fin.unpaidBalance - a.fin.unpaidBalance),
     [cases],
   );
+
+  // 💸 待付夥伴款：跨案件彙總尚未結清的合作夥伴費用 (依夥伴分組)
+  const partnerDues = useMemo(() => collectPartnerDues(cases), [cases]);
 
   const visible = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -469,10 +603,23 @@ export default function CasesBoard({
           role: "",
           amount: 0,
           paidAmount: 0,
+          payments: [],
           payStatus: "unpaid" as PartnerPayStatus,
         },
       ],
     }));
+  }
+
+  /** 案件收款紀錄變更：同步更新 receivedAmount 供即時財務計算使用 */
+  function setReceivedPayments(next: PaymentEntry[]) {
+    const total = next.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    setDraft((d) => ({ ...d, receivedPayments: next, receivedAmount: total }));
+  }
+
+  /** 夥伴付款紀錄變更：同步更新該列 paidAmount 供即時財務計算使用 */
+  function setPartnerPayments(id: string, next: PaymentEntry[]) {
+    const total = next.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    patchPartnerCost(id, { payments: next, paidAmount: total });
   }
 
   function patchPartnerCost(id: string, patch: Partial<PartnerCost>) {
@@ -594,6 +741,84 @@ export default function CasesBoard({
                 </button>
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 💸 待付夥伴款：跨案件彙總「你欠夥伴的錢」，依夥伴分組展開看明細 */}
+      {partnerDues.length > 0 && (
+        <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 p-3.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-sky-800">
+            <HandCoins size={16} />
+            待付夥伴款：{partnerDues.length} 位夥伴尚有應付款，合計{" "}
+            {formatNT(
+              partnerDues.reduce((sum, d) => sum + d.totalOutstanding, 0),
+            )}
+          </div>
+          <ul className="mt-2 space-y-1">
+            {partnerDues.map((d) => {
+              const expanded = expandedDues.has(d.key);
+              return (
+                <li key={d.key} className="rounded-lg bg-white/70">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5">
+                    <button
+                      onClick={() => toggleDueExpanded(d.key)}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+                    >
+                      <ChevronDown
+                        size={13}
+                        className={`shrink-0 text-paper-muted transition-transform ${
+                          expanded ? "rotate-180" : ""
+                        }`}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium text-paper-text">
+                        {d.partnerName}
+                      </span>
+                      {d.items.length > 1 && (
+                        <span className="shrink-0 text-xs text-paper-muted">
+                          {d.items.length} 個案件
+                        </span>
+                      )}
+                    </button>
+                    {d.contactId && (
+                      <button
+                        onClick={() => goToContact(d.contactId)}
+                        className="shrink-0 rounded-md p-1 text-paper-muted transition hover:bg-paper-block hover:text-brand-600"
+                        title="到人脈庫看詳情"
+                        aria-label="到人脈庫看詳情"
+                      >
+                        <ExternalLink size={13} />
+                      </button>
+                    )}
+                    <span className="shrink-0 rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800">
+                      {formatNT(d.totalOutstanding)}
+                    </span>
+                  </div>
+                  {expanded && (
+                    <ul className="space-y-0.5 px-3 pb-2">
+                      {d.items.map((item) => {
+                        const target = cases.find((x) => x.id === item.caseId);
+                        return (
+                          <li key={item.caseId}>
+                            <button
+                              onClick={() => target && openCase(target)}
+                              className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-xs transition hover:bg-paper-block"
+                            >
+                              <span className="truncate text-paper-muted">
+                                {item.caseName}
+                              </span>
+                              <span className="shrink-0 font-medium text-sky-700">
+                                {formatNT(item.outstanding)}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -760,51 +985,48 @@ export default function CasesBoard({
             </div>
 
             {/* (b) 應收帳款 */}
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <label className="field-label">總金額 (應收)</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  className="field-input"
-                  placeholder="0"
-                  value={amountValue(draft.totalAmount)}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      totalAmount: parseAmount(e.target.value),
-                    }))
-                  }
-                />
+            <div className="mb-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="field-label">總金額 (應收)</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    className="field-input"
+                    placeholder="0"
+                    value={amountValue(draft.totalAmount)}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        totalAmount: parseAmount(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="field-label">未收款餘額（自動）</label>
+                  <div
+                    className={`flex min-h-[42px] items-center rounded-lg border px-3 text-sm font-semibold ${
+                      fin.unpaidBalance > 0
+                        ? "border-amber-300 bg-amber-50 text-amber-800"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {formatNT(fin.unpaidBalance)}
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="field-label">已收款</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  className="field-input"
-                  placeholder="0"
-                  value={amountValue(draft.receivedAmount)}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      receivedAmount: parseAmount(e.target.value),
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="field-label">未收款餘額（自動）</label>
-                <div
-                  className={`flex min-h-[42px] items-center rounded-lg border px-3 text-sm font-semibold ${
-                    fin.unpaidBalance > 0
-                      ? "border-amber-300 bg-amber-50 text-amber-800"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  }`}
-                >
-                  {formatNT(fin.unpaidBalance)}
+              <div className="mt-3">
+                <label className="field-label">
+                  收款紀錄（已收 {formatNT(fin.receivedAmount)}）
+                </label>
+                <div className="rounded-lg border border-paper-border bg-paper-block/30 p-2.5">
+                  <PaymentLedger
+                    entries={draft.receivedPayments}
+                    onChange={setReceivedPayments}
+                    addLabel="新增收款紀錄"
+                  />
                 </div>
               </div>
             </div>
@@ -927,7 +1149,7 @@ export default function CasesBoard({
                           />
                         </div>
                       </div>
-                      <div className="mt-2 grid grid-cols-3 gap-2 pr-8 sm:pr-9">
+                      <div className="mt-2 grid grid-cols-2 gap-2 pr-8 sm:pr-9">
                         <div>
                           <label className="field-label text-xs">
                             應付金額
@@ -942,24 +1164,6 @@ export default function CasesBoard({
                             onChange={(e) =>
                               patchPartnerCost(p.id, {
                                 amount: parseAmount(e.target.value),
-                              })
-                            }
-                          />
-                        </div>
-                        <div>
-                          <label className="field-label text-xs">
-                            已付金額
-                          </label>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            min={0}
-                            className="field-input"
-                            placeholder="0"
-                            value={amountValue(p.paidAmount)}
-                            onChange={(e) =>
-                              patchPartnerCost(p.id, {
-                                paidAmount: parseAmount(e.target.value),
                               })
                             }
                           />
@@ -987,34 +1191,68 @@ export default function CasesBoard({
                           </select>
                         </div>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${PAY_STATUS_META[p.payStatus].badge}`}
+
+                      {/* 付款紀錄：折疊顯示，摘要列一律可見（已付／未付一眼看到） */}
+                      <div className="mt-2 pr-8 sm:pr-9">
+                        <button
+                          type="button"
+                          onClick={() => togglePaymentsExpanded(p.id)}
+                          className="flex w-full items-center justify-between rounded-md bg-white/70 px-2.5 py-1.5 text-xs transition hover:bg-white"
                         >
-                          {PAY_STATUS_META[p.payStatus].label}
-                        </span>
-                        {p.payStatus !== "paid" && p.paidAmount > 0 && (
-                          <span className="text-[11px] text-amber-700">
-                            已付 {formatNT(Math.min(p.paidAmount, p.amount))}
-                            ・未付{" "}
-                            {formatNT(Math.max(p.amount - p.paidAmount, 0))}
-                          </span>
-                        )}
-                        {/* 對到人脈庫時帶出匯款資訊，付款免翻頁 */}
-                        {(() => {
-                          const m = linkedContact(p);
-                          if (!m || !m.transferInfo) return null;
-                          return (
+                          <span className="inline-flex items-center gap-1.5 text-paper-muted">
+                            <HandCoins size={13} />
+                            付款紀錄（{p.payments.length} 筆）
                             <span
-                              className="inline-flex items-center gap-1 text-[11px] text-paper-muted"
-                              title={`人脈庫：${m.name}`}
+                              className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${PAY_STATUS_META[p.payStatus].badge}`}
                             >
-                              <Link2 size={11} className="text-brand-500" />
-                              匯款：{m.transferInfo}
+                              {PAY_STATUS_META[p.payStatus].label}
                             </span>
-                          );
-                        })()}
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              className={
+                                p.amount - partnerCostPaid(p) > 0
+                                  ? "font-medium text-amber-700"
+                                  : "font-medium text-emerald-600"
+                              }
+                            >
+                              已付 {formatNT(partnerCostPaid(p))}
+                              {p.amount - partnerCostPaid(p) > 0
+                                ? `・未付 ${formatNT(p.amount - partnerCostPaid(p))}`
+                                : ""}
+                            </span>
+                            <ChevronDown
+                              size={13}
+                              className={`text-paper-muted transition-transform ${
+                                expandedPayments.has(p.id) ? "rotate-180" : ""
+                              }`}
+                            />
+                          </span>
+                        </button>
+                        {expandedPayments.has(p.id) && (
+                          <div className="mt-1.5 rounded-md border border-paper-border bg-white/70 p-2.5">
+                            <PaymentLedger
+                              entries={p.payments}
+                              onChange={(next) =>
+                                setPartnerPayments(p.id, next)
+                              }
+                              addLabel="新增付款紀錄"
+                            />
+                          </div>
+                        )}
                       </div>
+
+                      {/* 對到人脈庫時帶出匯款資訊，付款免翻頁 */}
+                      {(() => {
+                        const m = linkedContact(p);
+                        if (!m || !m.transferInfo) return null;
+                        return (
+                          <div className="mt-1.5 flex items-center gap-1 pr-8 text-[11px] text-paper-muted sm:pr-9">
+                            <Link2 size={11} className="text-brand-500" />
+                            匯款：{m.transferInfo}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

@@ -44,6 +44,13 @@ export function partnerCostsTotal(costs: PartnerCost[]): number {
   return costs.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
 }
 
+/** 單筆夥伴費用「已付金額」(已結清視同付滿全額；其餘依付款紀錄加總，不超過應付金額) */
+export function partnerCostPaid(p: PartnerCost): number {
+  const amount = Number(p.amount) || 0;
+  if (p.payStatus === "paid") return amount;
+  return Math.min(Number(p.paidAmount) || 0, amount);
+}
+
 /** 依案件欄位計算完整財務分解 (唯一計算入口，前後端一致) */
 export function computeCaseFinance(
   c: Pick<
@@ -68,11 +75,7 @@ export function computeCaseFinance(
   let partnerOutstanding = 0;
   for (const p of c.partnerCosts) {
     const amount = Number(p.amount) || 0;
-    // 已結清視同付滿全額；其餘依「已付金額」計算剩餘 (訂金/分期)
-    const paid =
-      p.payStatus === "paid"
-        ? amount
-        : Math.min(Number(p.paidAmount) || 0, amount);
+    const paid = partnerCostPaid(p);
     partnerPaid += paid;
     partnerOutstanding += amount - paid;
   }
@@ -89,4 +92,77 @@ export function computeCaseFinance(
     partnerOutstanding,
     netProfit: totalAmount - taxTotal - partnerTotal,
   };
+}
+
+/** 待付某夥伴的其中一個案件的應付餘額 */
+export interface PartnerDueItem {
+  caseId: string;
+  caseName: string;
+  outstanding: number;
+}
+
+/** 跨案件彙總的「待付夥伴款」(Accounts Payable 總覽) */
+export interface PartnerDue {
+  /** 分組鍵：有 contactId 用它，否則用正規化後的姓名 (name: 開頭) */
+  key: string;
+  /** 關聯的人脈庫聯絡人 id ("" = 名單外自訂) */
+  contactId: string;
+  /** 顯示用夥伴名稱 */
+  partnerName: string;
+  /** 此夥伴橫跨所有案件的應付總額 */
+  totalOutstanding: number;
+  /** 各案件的應付明細 (金額大→小) */
+  items: PartnerDueItem[];
+}
+
+/**
+ * 彙總所有案件中「尚未結清」的合作夥伴費用，依夥伴分組
+ * (同 contactId 視為同一人；未關聯人脈庫則以姓名分組)。
+ * 供案件管理頁「💸 待付夥伴款」總覽使用，金額大→小排序。
+ */
+export function collectPartnerDues(cases: Case[]): PartnerDue[] {
+  const map = new Map<string, PartnerDue>();
+  for (const c of cases) {
+    for (const p of c.partnerCosts) {
+      const amount = Number(p.amount) || 0;
+      const outstanding = amount - partnerCostPaid(p);
+      if (outstanding <= 0) continue;
+      const name = p.partnerName.trim() || "（未命名夥伴）";
+      const key = p.contactId || `name:${name.toLowerCase()}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.totalOutstanding += outstanding;
+        // 同一夥伴在同一案件內可能有多筆費用列 (如多次追加設計費)，合併為一筆案件明細
+        const sameCase = existing.items.find((i) => i.caseId === c.id);
+        if (sameCase) sameCase.outstanding += outstanding;
+        else {
+          existing.items.push({
+            caseId: c.id,
+            caseName: c.name || "（未命名案件）",
+            outstanding,
+          });
+        }
+      } else {
+        map.set(key, {
+          key,
+          contactId: p.contactId,
+          partnerName: name,
+          totalOutstanding: outstanding,
+          items: [
+            {
+              caseId: c.id,
+              caseName: c.name || "（未命名案件）",
+              outstanding,
+            },
+          ],
+        });
+      }
+    }
+  }
+  return Array.from(map.values())
+    .map((d) => ({
+      ...d,
+      items: d.items.sort((a, b) => b.outstanding - a.outstanding),
+    }))
+    .sort((a, b) => b.totalOutstanding - a.totalOutstanding);
 }

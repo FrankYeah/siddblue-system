@@ -201,4 +201,32 @@ export async function getAllNotes(): Promise<Note[]> {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+/**
+ * 完整覆寫筆記資料 (備份還原用)：清空現有全部 (含分享 token 對應)，寫入 snapshot 內容。
+ * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
+ */
+export async function restoreNotesData(notes: Note[]): Promise<void> {
+  if (KV_ENABLED) {
+    const existingIds =
+      (await kv.zrange<string[]>(NOTE_INDEX_KEY, 0, -1)) ?? [];
+    for (const id of existingIds) {
+      const existing = await kv.get<Note>(NOTE_KEY(id));
+      await kv.del(NOTE_KEY(id));
+      if (existing?.shareToken) await kv.del(SHARE_KEY(existing.shareToken));
+    }
+    if (existingIds.length > 0) await kv.del(NOTE_INDEX_KEY);
+    for (const n of notes) {
+      await kv.set(NOTE_KEY(n.id), n);
+      await kv.zadd(NOTE_INDEX_KEY, {
+        score: new Date(n.updatedAt).getTime() || Date.now(),
+        member: n.id,
+      });
+      await kv.set(SHARE_KEY(n.shareToken), n.id);
+    }
+  } else {
+    memStore.clear();
+    notes.forEach((n) => memStore.set(n.id, n));
+  }
+}
+
 export { KV_ENABLED, NOTE_TYPES };

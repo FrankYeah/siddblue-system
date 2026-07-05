@@ -224,6 +224,21 @@ export type PartnerPayStatus =
   | "deposit" // 已付訂金
   | "paid"; // 已結清
 
+/**
+ * 單筆收/付款紀錄 (Payment Ledger)。
+ * 取代單一數字欄位，記錄每一筆實際入帳/出帳的時間點，
+ * 可回答「這筆錢是什麼時候付的」，也是月報/年報的資料地基。
+ */
+export interface PaymentEntry {
+  id: string;
+  /** 日期 (YYYY-MM-DD) */
+  date: string;
+  /** 金額 */
+  amount: number;
+  /** 備註 (如：頭期款、訂金、尾款) */
+  note: string;
+}
+
 /** 單筆合作夥伴費用 (外包成本，Accounts Payable) */
 export interface PartnerCost {
   id: string;
@@ -235,8 +250,10 @@ export interface PartnerCost {
   role: string;
   /** 應付金額 */
   amount: number;
-  /** 已付金額 (訂金/分期實付；「已結清」時視同全額) */
+  /** 已付金額 (衍生值 = payments 加總；「已結清」時視同全額，伺服器端計算，不可由前端覆寫) */
   paidAmount: number;
+  /** 付款紀錄 (逐筆日期＋金額＋備註，如訂金/分期) */
+  payments: PaymentEntry[];
   /** 付款狀態 */
   payStatus: PartnerPayStatus;
 }
@@ -253,8 +270,10 @@ export interface Case {
   quoteId: string;
   /** 總應收金額 (Accounts Receivable) */
   totalAmount: number;
-  /** 已收款 */
+  /** 已收款 (衍生值 = receivedPayments 加總，伺服器端計算，不可由前端覆寫) */
   receivedAmount: number;
+  /** 收款紀錄 (逐筆日期＋金額＋備註，如頭期款/尾款) */
+  receivedPayments: PaymentEntry[];
   /** 代扣 5% 營業稅 (僅 caseType = invoice) */
   withholdBusinessTax: boolean;
   /** 代收代扣 3% 營所稅 (僅 caseType = invoice) */

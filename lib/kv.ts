@@ -202,4 +202,43 @@ export async function listQuotes(): Promise<QuoteSummary[]> {
     .map(toSummary);
 }
 
+/** 取得所有完整報價單 (新 → 舊)，備份匯出使用 */
+export async function getAllQuotesFull(): Promise<Quote[]> {
+  noStore();
+  if (KV_ENABLED) {
+    const ids = await kv.zrange<string[]>(INDEX_KEY, 0, -1, { rev: true });
+    if (!ids || ids.length === 0) return [];
+    const quotes = await Promise.all(ids.map((id) => getQuote(id)));
+    return quotes.filter((q): q is Quote => Boolean(q));
+  }
+  return Array.from(memStore.values())
+    .map((q) => migrateQuote(q))
+    .filter((q): q is Quote => Boolean(q))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/**
+ * 完整覆寫報價單資料 (備份還原用)：清空現有全部，寫入 snapshot 內容。
+ * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
+ */
+export async function restoreQuotes(quotes: Quote[]): Promise<void> {
+  if (KV_ENABLED) {
+    const existingIds = (await kv.zrange<string[]>(INDEX_KEY, 0, -1)) ?? [];
+    if (existingIds.length > 0) {
+      await Promise.all(existingIds.map((id) => kv.del(QUOTE_KEY(id))));
+      await kv.del(INDEX_KEY);
+    }
+    for (const q of quotes) {
+      await kv.set(QUOTE_KEY(q.id), q);
+      await kv.zadd(INDEX_KEY, {
+        score: new Date(q.updatedAt).getTime() || Date.now(),
+        member: q.id,
+      });
+    }
+  } else {
+    memStore.clear();
+    quotes.forEach((q) => memStore.set(q.id, q));
+  }
+}
+
 export { KV_ENABLED, QUOTE_STATUSES };

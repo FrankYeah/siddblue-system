@@ -22,6 +22,10 @@
 | `/api/contacts` `(/[id])` | 🤝 人脈庫 CRUD（需登入） |
 | `/api/contacts/import` | `POST` 人脈庫 CSV 整批匯入（需登入，單批 ≤ 500 筆） |
 | `/api/matrix` | `POST` ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入 + `OPENAI_API_KEY`） |
+| `/api/backup/export` | `GET` 📦 匯出全部資料為 JSON 檔（需登入） |
+| `/api/backup/snapshot` | `GET` 建立備份快照，最多保留 7 份（需登入或 Cron） |
+| `/api/backup/list` | `GET` 列出所有備份快照（需登入） |
+| `/api/backup/restore` | `POST` 還原至指定快照（**危險操作**，需登入） |
 | `/api/admin/login` | `POST` 登入 / `DELETE` 登出 |
 | `/api/test-db` | `GET` Vercel KV 連線健檢（寫入→讀回→比對；`?keep=1` 保留） |
 
@@ -32,10 +36,12 @@
   名稱 / 型態 / 總金額 / 已收 / 未收 / 淨利 / 夥伴 / 備註，點列彈出 Modal 編輯。
   **兩種案件型態**（💼 我接的案子 / 🧾 幫朋友開發票，新增時先選；只有代開發票才有
   「代扣 5% 營業稅」「代收代扣 3% 營所稅」開關）、關聯報價單（自動帶入名稱與總金額）、
-  應收帳款（頂部**催款提醒**列出所有未收款案件與未收合計）、合作夥伴費用
-  （夥伴名稱為**可搜尋下拉選單串接人脈庫**，選取後可一鍵**連過去看該人詳情**、
-  帶出匯款資訊 / 負責項目 / 應付金額 / **已付金額**（訂金分期）/ 付款狀態），
-  自動算出**實際淨利 (Net Profit)** 與尚欠夥伴款。
+  應收帳款（頂部**催款提醒**列出所有未收款案件與未收合計，收款改為**逐筆收款紀錄**
+  ——日期＋金額＋備註，如「頭期款」「尾款」，Modal 內常駐顯示、新增/刪除即時重算）、
+  合作夥伴費用（夥伴名稱為**可搜尋下拉選單串接人脈庫**，選取後可一鍵**連過去看該人詳情**、
+  帶出匯款資訊 / 負責項目 / 應付金額 / **逐筆付款紀錄**（訂金/分期，折疊顯示、
+  摘要列常駐已付/未付）/ 付款狀態），自動算出**實際淨利 (Net Profit)**；
+  頂部另有 💸 **待付夥伴款**總覽（跨案件彙總你欠每位夥伴多少，展開看各案件明細）。
 - **📝 寫作靈感**：四欄看板（💡靈感池 / 📰長文電子報 / 🎬短影片 / 📦已封存），
   以 `@hello-pangea/dnd` 拖曳切換狀態，點卡片開 Modal 編輯（多行 / 基本 Markdown）；
   已封存欄卡片淡化。每次變更即存回 KV（`workspace:inspirations` 單一 JSON blob）。
@@ -55,6 +61,9 @@
   高/中/低/不確定與就業/接案/創業/學生自動正規化，相容 Notion 匯出格式）。
 - **🏦 銀行資訊快捷面板**：導覽列常駐——個人（台新 812 敦南 0023）與
   公司（國泰世華 013 基隆 1243 + 統編）帳戶，一鍵複製完整匯款資訊或純數字帳號（Toast 提示）。
+- **📦 資料備份與匯出**：導覽列常駐——「匯出 JSON」下載目前全部資料；「立即備份」
+  手動建立快照；每日由 Vercel Cron 自動快照一次，最近 7 份可一鍵「還原」（危險操作，
+  會覆寫目前所有資料，需二次確認）。
 - **🔍 全域搜尋框**：導覽列下方的即打即搜（寫作靈感、知識庫、案件、人脈皆支援）；
   44px 觸控高度、16px 字級防 iOS 聚焦縮放；搜尋中拖曳自動暫停。
 - **🔗 自動連結化 (Auto-Linkify)**：靈感卡片與筆記內容中的 `http(s)://` 網址
@@ -139,18 +148,22 @@ NEXT_PUBLIC_SITE_URL="https://your-project.vercel.app"
 
 # ✨ 內容矩陣引擎（選用；未設定則僅該功能停用）
 OPENAI_API_KEY="sk-..."
+
+# 📦 資料備份每日自動快照（選用；未設定則排程會被拒絕，手動備份不受影響）
+CRON_SECRET="任意隨機字串，如 openssl rand -hex 32"
 ```
 
-3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD`）。
+3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD` / `CRON_SECRET`）。
 
 ### 資料儲存結構
 ```
 quote:{id}       → 單筆報價單 (JSON)
 quotes:index     → sorted set，score = 更新時間，供後台列表新→舊排序
 note:{id}        → 單筆知識庫筆記；notes:index 同上；note:share:{token} 反查
-case:{id}        → 單筆案件（財務）；cases:index 同上
+case:{id}        → 單筆案件（財務，含收/付款逐筆紀錄）；cases:index 同上
 contact:{id}     → 單筆人脈聯絡人；contacts:index 同上
 workspace:*      → 靈感看板 / 待辦清單（整包 JSON blob）
+backups:index    → 備份快照索引；backup:meta:{id} 摘要、backup:data:{id} 完整內容（最多 7 份）
 ```
 
 ---
@@ -197,18 +210,25 @@ app/
   api/
     quotes/route.ts         列表 / 建立
     quotes/[id]/route.ts    讀取 / 更新 / 刪除
+    backup/export/route.ts    匯出 JSON
+    backup/snapshot/route.ts  建立快照 (Cron 或手動)
+    backup/list/route.ts      列出快照
+    backup/restore/route.ts   還原快照
     admin/login/route.ts    登入 / 登出
 lib/
   types.ts        型別 (Schema)
   defaults.ts     硬編碼企業預設值
   kv.ts           Vercel KV 存取層 (+記憶體後援)
+  backup.ts       📦 資料備份：匯出/快照/列表/還原
   format.ts       金額 / 加總 (client+server 共用)
   csv.ts          CSV 匯出
   normalize.ts    輸入清理
   auth.ts         後台密碼保護
 components/
   BrandDecor.tsx  紙飛機 / 海鷗 / { } 裝飾
+  BackupPanel.tsx 📦 資料備份與匯出面板
 public/assets/    company-stamps.png (大小章)
+vercel.json       Cron 排程設定 (每日備份)
 ```
 
 ---

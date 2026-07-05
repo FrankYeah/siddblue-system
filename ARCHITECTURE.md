@@ -1,7 +1,7 @@
 # 系統架構文件 (Architecture)
 
 > 西打藍好內容有限公司 — 報價單與規格生成工具
-> 最後更新：2026-07-04
+> 最後更新：2026-07-06
 
 本文件盤點整個系統的架構，供未來維護與擴充新功能參考。系統由六個模組組成，共用同一套後台外殼與 Vercel KV 資料層：
 
@@ -14,7 +14,9 @@
 | 📚 **知識庫** | 取代 Apple Notes：創業筆記 / 合夥人知識共享 / 客戶諮詢紀錄；支援 Markdown、標籤、諮詢模板，可對外產生唯讀分享連結 | `/admin`（頁籤）、`/shared/note/[token]`（對外） |
 | 🤝 **人脈庫** | Connections CRM，**Notion 風格資料表**：點列開 Modal 編輯、拖曳排序（順序持久化）、逐列「＋」插入、職業別/合作方向篩選、預設同職業別分組；支援 CSV 整批匯入 | `/admin`（頁籤） |
 
-另有 🏦 **銀行帳戶快捷面板**（`components/BankInfoPanel.tsx`）常駐後台導覽列：個人／公司帳戶資訊一鍵複製（完整匯款資訊、純數字帳號、統編），複製後顯示 Toast。帳戶資訊為靜態常數（本來就是給客戶匯款用），不經 KV。
+另有兩個常駐後台導覽列的全域面板：
+- 🏦 **銀行帳戶快捷面板**（`components/BankInfoPanel.tsx`）：個人／公司帳戶資訊一鍵複製（完整匯款資訊、純數字帳號、統編），複製後顯示 Toast。帳戶資訊為靜態常數（本來就是給客戶匯款用），不經 KV。
+- 📦 **資料備份與匯出**（`components/BackupPanel.tsx`）：一鍵匯出全部資料為 JSON、手動「立即備份」、還原至過去快照；每日由 Vercel Cron 自動快照一次，保留最近 7 份（見 §5.7）。
 
 ---
 
@@ -83,25 +85,31 @@ siddblue-system/
 │       ├── contacts/[id]/route.ts        # GET / PUT / DELETE 單筆聯絡人（需登入）
 │       ├── contacts/import/route.ts      # POST 整批匯入聯絡人（CSV，需登入）
 │       ├── matrix/route.ts               # POST ✨ 內容矩陣引擎：長文 → 短影音腳本（需登入）
+│       ├── backup/export/route.ts        # GET 匯出全部資料 JSON（需登入）
+│       ├── backup/snapshot/route.ts      # GET 建立備份快照（Cron 或後台手動，見 §5.7）
+│       ├── backup/list/route.ts          # GET 列出所有備份快照（需登入）
+│       ├── backup/restore/route.ts       # POST 還原至指定快照（危險操作，需登入）
 │       ├── admin/login/route.ts          # POST 登入 / DELETE 登出
 │       └── test-db/route.ts              # GET KV 連線健檢
 │
 ├── components/
 │   ├── BrandDecor.tsx            # 紙飛機 / 海鷗 / { } 程式碼括號 等品牌 SVG 裝飾
 │   ├── BankInfoPanel.tsx         # 🏦 銀行帳戶快捷面板（一鍵複製 + Toast，靜態常數）
+│   ├── BackupPanel.tsx           # 📦 資料備份與匯出面板（匯出/立即備份/還原）
 │   └── Linkify.tsx               # 純文字中的 http(s) 網址轉可點擊連結（React 元素輸出，免疫 XSS）
 │
 ├── lib/                          # 純邏輯層（無 UI）
 │   ├── types.ts                  # 所有資料型別（Schema 唯一真實來源）
 │   ├── defaults.ts               # 硬編碼企業預設值（抬頭、付款、預設項目/流程…）
-│   ├── kv.ts                     # 報價單 KV 存取層（含遷移、狀態、摘要）
+│   ├── kv.ts                     # 報價單 KV 存取層（含遷移、狀態、摘要、備份還原用 restoreQuotes）
 │   ├── workspace-kv.ts           # 靈感看板 / 待辦清單 KV 存取層
-│   ├── notes-kv.ts               # 📚 知識庫 KV 存取層（CRUD + shareToken 反查）
-│   ├── cases-kv.ts               # 💼 案件管理 KV 存取層（CRUD + 索引）
-│   ├── contacts-kv.ts            # 🤝 人脈庫 KV 存取層（CRUD + pipeline 整批匯入 + 手動排序）
+│   ├── notes-kv.ts               # 📚 知識庫 KV 存取層（CRUD + shareToken 反查 + 備份還原）
+│   ├── cases-kv.ts               # 💼 案件管理 KV 存取層（CRUD + 索引 + 收付款歷程 + 備份還原）
+│   ├── contacts-kv.ts            # 🤝 人脈庫 KV 存取層（CRUD + pipeline 整批匯入 + 手動排序 + 備份還原）
 │   ├── contacts-sort.ts          # 人脈庫預設分組排序 + 職業別多值切分（client+server 共用）
-│   ├── finance.ts                # 案件財務計算：稅務代扣 + 外包成本 → 淨利（client+server 共用）
+│   ├── finance.ts                # 案件財務計算：稅務代扣 + 外包成本 → 淨利 + 待付夥伴款彙總（client+server 共用）
 │   ├── contacts-csv.ts           # 人脈庫 CSV 匯入解析（表頭別名對應 + 評級正規化，前端）
+│   ├── backup.ts                 # 📦 資料備份：匯出/快照/列表/還原，7 份輪替（見 §5.7）
 │   ├── markdown.ts               # 安全的白名單 Markdown → HTML（對外分享頁用）
 │   ├── format.ts                 # 金額格式化、營業稅計算（client+server 共用）
 │   ├── normalize.ts              # 輸入清理/補齊 + 舊資料相容
@@ -113,6 +121,7 @@ siddblue-system/
 │
 ├── ARCHITECTURE.md               # ← 本文件
 ├── README.md                     # 使用說明
+├── vercel.json                   # Vercel Cron 設定（每日呼叫 /api/backup/snapshot）
 ├── tailwind.config.ts            # 品牌色階、漸層、動畫
 └── package.json
 ```
@@ -147,6 +156,9 @@ Vercel KV（Upstash Redis）中的所有 key：
 | `contact:{id}` | JSON (string) | 單筆聯絡人 `Contact` | `lib/contacts-kv.ts` |
 | `contacts:index` | Sorted Set | 索引；`member = id`，`score = updatedAt(ms)`（資料表的後備排序） | `lib/contacts-kv.ts` |
 | `contacts:order` | JSON (string[]) | 資料表**手動拖曳後的顯示順序**（id 陣列，整包覆寫）；不存在 = 未手動排序，套用預設分組排序 | `lib/contacts-kv.ts` |
+| `backups:index` | Sorted Set | 備份快照索引；`member = 備份 id`，`score = 建立時間(ms)` | `lib/backup.ts` |
+| `backup:meta:{id}` | JSON (string) | 單份備份的輕量摘要（時間 + 各模組筆數），列表用 | `lib/backup.ts` |
+| `backup:data:{id}` | JSON (string) | 單份備份的完整資料，只在還原時讀取 | `lib/backup.ts` |
 | `test:siddblue` | JSON (string) | 連線健檢暫存資料，讀回後即刪除（除非 `?keep=1`） | `app/api/test-db/route.ts` |
 
 > 型別的唯一真實來源是 `lib/types.ts`。以下定義與該檔一致。
@@ -302,13 +314,21 @@ type CaseType = "own" | "invoice"; // 我接的案子 / 幫朋友開發票
 
 type PartnerPayStatus = "unpaid" | "deposit" | "paid"; // 未支付 / 已付訂金 / 已結清
 
+interface PaymentEntry {     // 單筆收/付款紀錄 (Payment Ledger)
+  id: string;
+  date: string;               // YYYY-MM-DD
+  amount: number;
+  note: string;                // 備註 (如：頭期款、訂金、尾款)
+}
+
 interface PartnerCost {      // 合作夥伴費用 (外包成本，Accounts Payable)
   id: string;
   partnerName: string;       // 夥伴名稱 (人脈庫聯絡人名稱快照，或名單外自由填寫)
   contactId: string;         // 關聯人脈庫聯絡人 id ("" = 未關聯)，供「連過去看詳情」
   role: string;              // 負責項目 (前端、設計…)
   amount: number;            // 應付金額
-  paidAmount: number;        // 已付金額 (訂金/分期實付；「已結清」視同全額)
+  paidAmount: number;        // 已付金額 (衍生值 = payments 加總，伺服器計算、前端不可覆寫)
+  payments: PaymentEntry[];  // 付款紀錄 (逐筆日期＋金額＋備註，如訂金/分期)
   payStatus: PartnerPayStatus;
 }
 
@@ -318,7 +338,8 @@ interface Case {
   caseType: CaseType;            // 案件型態；舊資料遷移預設 "own"
   quoteId: string;               // 關聯報價單 id ("" = 未關聯)
   totalAmount: number;           // 總應收金額 (AR)
-  receivedAmount: number;        // 已收款
+  receivedAmount: number;        // 已收款 (衍生值 = receivedPayments 加總，伺服器計算)
+  receivedPayments: PaymentEntry[]; // 收款紀錄 (逐筆日期＋金額＋備註，如頭期款/尾款)
   withholdBusinessTax: boolean;  // 代扣 5% 營業稅
   withholdIncomeTax: boolean;    // 代扣 3% 營所稅
   partnerCosts: PartnerCost[];   // 外包成本 (上限 50 筆)
@@ -333,6 +354,8 @@ type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
 - **逐筆 CRUD + 索引**（同報價單/知識庫）：`case:{id}` + `cases:index`。
 - **案件型態（caseType）**：新增案件時先選「💼 我接的案子」或「🧾 幫朋友開發票」。**稅務代扣（5% 營業稅、代收代扣 3% 營所稅）只屬於代開發票型**——own 型 UI 不顯示且 `cleanInput()`/`migrateCase()` 一律強制兩旗標為 `false`（資料層保證一致）；切成 invoice 時預設兩項開啟（可取消）。舊資料遷移為 `own`。
 - **資料表 + Modal UI（`CasesBoard`）**：Notion 風格全寬資料表——每列直接顯示 名稱／型態／總金額／已收／未收／淨利／夥伴／備註（`line-clamp-2`），點列彈出置中 Modal 編輯（取代舊的左列表右面板）；財務數字 `tabular-nums` 對齊、未收與淨利依正負著色；手機 `overflow-x-auto`（min-w 960px）。頂部「新增」先選型態。
+- **收付款歷程（Payment Ledger）**：`receivedAmount`／`paidAmount` 不再是可直接編輯的數字，改為 `receivedPayments`／`payments` 逐筆紀錄（日期＋金額＋備註）的加總，**伺服器端強制重新計算、忽略前端送來的舊式數字欄位**（`lib/cases-kv.ts` 的 `deriveReceived()` / `sanitizePartnerCosts()`），避免前端 bug 或亂改導致金額失真。`CasesBoard` 的 `PaymentLedger` 元件為 case 收款（Modal 內常駐顯示）與每筆夥伴付款（收折疊、summary 列常駐顯示已付/未付）共用同一元件。
+  - **舊資料相容 (backfill)**：改版前只有單一數字欄位的既有案件，讀取時（`migrateCase()`/`sanitizePartnerCosts()`）若逐筆紀錄為空但舊數字 > 0，自動補一筆「既有已收款／已付金額（系統轉入）」的歷史快照（日期取案件建立時間），確保金額**不因改版被清零**；使用者之後編輯存檔即成為正式紀錄。
 - **夥伴名稱串接人脈庫（`PartnerPicker`）**：外包成本的「夥伴名稱」為**可搜尋下拉**——列出人脈庫聯絡人（顯示職業），選取即把 `contactId` 與名稱快照寫入該列；名單外的人可「使用自訂名稱」自由填寫（`contactId=""`）。已關聯（或退回同名比對）時，欄位旁出現 ↗ 按鈕**切到人脈庫並直接開啟該聯絡人的 Modal**（`onOpenContact` 由 `AdminWorkspace` 處理跨頁籤 focus；導頁前先關案件 Modal 以免殘留全域 Esc 監聽）；有匯款資訊時該列一併帶出，付款免切頁。
 - **關聯報價單為快照**：在後台選擇報價單時把 `clientName`／`total` 帶入 `name`／`totalAmount`，之後可自行修改；報價單後續變動**不會**回寫案件。
 - **衍生值不落地**：未收款餘額、代扣稅額、淨利一律由 `lib/finance.ts` 的 `computeCaseFinance()` 即時計算（見 §5.5），KV 只存輸入值。
@@ -417,6 +440,10 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
 | `DELETE /api/contacts/[id]` | 刪除聯絡人（同時移出 index） | 需登入 | `deleteContact()` |
 | `POST /api/contacts/import` | 整批匯入聯絡人，body `{ contacts: ContactInput[] }`（單批 ≤ 500 筆，KV pipeline 寫入） | 需登入 | `importContacts()` |
 | `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `OPENAI_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/openai，`gpt-4o`） |
+| `GET /api/backup/export` | 匯出目前全部資料為 JSON 檔（`Content-Disposition: attachment`） | 需登入 | `exportAllData()` |
+| `GET /api/backup/snapshot` | 建立一份備份快照，自動輪替只保留最近 7 份 | 需登入 **或** Cron（見 §5.7） | `snapshotBackup()` |
+| `GET /api/backup/list` | 列出所有備份快照（新→舊，含各模組筆數摘要） | 需登入 | `listBackups()` |
+| `POST /api/backup/restore` | **危險操作**：還原至指定快照，body `{ id }`，會清空並覆寫目前全部資料 | 需登入 | `restoreBackup()` |
 | `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie | 公開 | `verifyPassword()` + `expectedToken()` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
 | `GET /api/test-db` | KV 連線健檢（寫→讀→比對→刪）；`?keep=1` 保留 | 公開 | 直接呼叫 `kv` |
@@ -512,7 +539,27 @@ interface CaseFinance {
 ```
 
 - 稅金各自**四捨五入至整數**（與報價單 `computeTotals()` 慣例一致）。
-- 使用點：`CasesBoard` 編輯區的即時財務摘要、左列表徽章、頂部**催款提醒**區塊（列出所有 `unpaidBalance > 0` 的案件，金額大→小，標題顯示未收合計）。
+- 使用點：`CasesBoard` 編輯區的即時財務摘要、資料表列（每列 `computeCaseFinance(c)`）、頂部**催款提醒**區塊（列出所有 `unpaidBalance > 0` 的案件，金額大→小，標題顯示未收合計）。
+- **單筆夥伴費用已付金額**：`partnerCostPaid(p: PartnerCost): number`（已結清視同付滿全額；其餘取 `paidAmount` 但不超過 `amount`）——`computeCaseFinance()` 與下方 `collectPartnerDues()` 共用同一邏輯，避免兩處算法各自飄移。
+
+**待付夥伴款彙總（`collectPartnerDues()`）**——跨案件彙總「你欠夥伴的錢」，供 `CasesBoard` 的「💸 待付夥伴款」總覽區塊使用：
+
+```ts
+interface PartnerDueItem { caseId: string; caseName: string; outstanding: number; }
+interface PartnerDue {
+  key: string;              // 分組鍵：有 contactId 用它，否則用 `name:{正規化姓名}`
+  contactId: string;        // "" = 名單外自訂
+  partnerName: string;
+  totalOutstanding: number; // 此夥伴橫跨所有案件的應付總額
+  items: PartnerDueItem[];  // 各案件明細 (同案件同夥伴的多筆費用列會合併成一項)，金額大→小
+}
+
+function collectPartnerDues(cases: Case[]): PartnerDue[];
+```
+
+- 依 `contactId`（有關聯人脈庫）或正規化姓名分組；`outstanding <= 0`（已結清）的費用列不計入，故完全付清的夥伴不會出現在總覽中。
+- 結果依 `totalOutstanding` 大→小排序，供一眼看出優先該付誰。
+- UI：`CasesBoard` 於頂部渲染，每位夥伴可展開看各案件明細（點案件名稱直接開該案 Modal）；有 `contactId` 時額外顯示 ↗ 按鈕，同案件管理頁「連過去看詳情」的邏輯，切到人脈庫並開啟該聯絡人 Modal。
 
 ### 5.6 後台驗證（`lib/auth.ts`）
 
@@ -527,6 +574,18 @@ interface CaseFinance {
 
 > 🔒 安全守則：切勿在程式或紀錄中輸出 `ADMIN_PASSWORD`；`.env.local` 須維持在 `.gitignore`。
 
+### 5.7 資料備份與匯出（`lib/backup.ts`）
+
+系統的所有資料都在同一個 Upstash KV 執行個體，看板類又是整包覆寫——一次寫入錯誤就可能蓋掉全部資料，因此設計了獨立的備份層：
+
+- **匯出（`exportAllData()`）**：平行讀取六個模組的完整資料（報價單、靈感看板、待辦清單、知識庫、案件管理、人脈庫含手動排序），組成單一 `BackupPayload` JSON 物件。`GET /api/backup/export` 直接回傳此物件並帶 `Content-Disposition: attachment`，後台按「匯出 JSON」即下載。
+- **快照（`snapshotBackup()`）**：呼叫 `exportAllData()`，以 `nanoid(12)` 產生備份 id，寫入 `backup:data:{id}`（完整內容）與 `backup:meta:{id}`（時間 + 各模組筆數的輕量摘要），並把 id 存進 `backups:index`（sorted set，score=建立時間）。**輪替**：寫入後檢查 `backups:index` 筆數，超過 7 份即刪除最舊的（`rotateBackups()`）。
+- **列表（`listBackups()`）**：只讀取輕量的 `backup:meta:{id}`，不觸碰大型的 `backup:data:{id}`，列表載入快速。
+- **還原（`restoreBackup(id)`）**——⚠️ **危險操作**：讀出該快照的完整 payload，平行呼叫六個模組各自的 `restore*()` 函式（`restoreQuotes()` / `saveInspirations()` / `saveTodos()` / `restoreNotesData()` / `restoreCasesData()` / `restoreContactsData()`），每個都是「先清空現有全部 key、再依快照內容重新寫入」，讓還原後的狀態與快照當時**完全一致**（而非合併）。UI 層（`BackupPanel`）在呼叫前以 `window.confirm()` 顯示快照時間與各模組筆數，要求使用者二次確認；還原成功後自動重整頁面。
+- **每日自動快照（Vercel Cron）**：`vercel.json` 設定 `crons: [{ path: "/api/backup/snapshot", schedule: "0 18 * * *" }]`（UTC 18:00 = 台北 02:00）。Vercel Cron 只送 `GET`；`/api/backup/snapshot` 的 `isCronOrAdmin()` 判斷請求是否帶有 `Authorization: Bearer <CRON_SECRET>`（Vercel 在設定 `CRON_SECRET` 環境變數後會自動附加此標頭），否則退回一般的 `isAuthenticated()` cookie 驗證（供後台「立即備份」手動按鈕使用）。
+  > ⚠️ 需在 **Vercel Dashboard → Project → Settings → Environment Variables** 手動設定 `CRON_SECRET`（任意隨機字串，如 `openssl rand -hex 32`）才能讓每日排程通過驗證；未設定前，排程呼叫會被拒絕（401），但手動備份按鈕不受影響。
+- **記憶體後援**：本機無 KV 時，快照存於 `globalThis.__sbBackupsMem`（同其餘 `*-kv.ts` 慣例），重啟即清空，方便安全地在本機測試還原流程而不動到正式 KV。
+
 ---
 
 ## 6. 環境變數
@@ -540,6 +599,7 @@ interface CaseFinance {
 | `ADMIN_PASSWORD` | 後台密碼；未設定則後台開放 | 建議設定 |
 | `NEXT_PUBLIC_SITE_URL` | 產生對外連結的基底網址 | 選填 |
 | `OPENAI_API_KEY` | ✨ 內容矩陣引擎（`/api/matrix`）呼叫 gpt-4o 所需；未設定時該功能回 503、其餘功能不受影響 | 使用矩陣生成時必填 |
+| `CRON_SECRET` | 📦 驗證 Vercel Cron 對 `/api/backup/snapshot` 的每日排程呼叫；未設定時排程會被拒絕，但後台手動「立即備份」不受影響 | 建議設定（見 §5.7） |
 
 ---
 
@@ -547,7 +607,8 @@ interface CaseFinance {
 
 - Git push 到 `main` → **Vercel 自動部署**。
 - 正式網址：`https://siddblue-system.vercel.app`（請以此網域為準；帶部署雜湊的網址會鎖定在舊版建置）。
-- KV 環境變數由 Vercel 的 KV 整合自動注入；`ADMIN_PASSWORD` 於 Project → Settings → Environment Variables 手動加入。
+- KV 環境變數由 Vercel 的 KV 整合自動注入；`ADMIN_PASSWORD` / `CRON_SECRET` 於 Project → Settings → Environment Variables 手動加入。
+- **`vercel.json`**：宣告每日備份的 Cron Job（`/api/backup/snapshot`）。Vercel 部署時會自動讀取此檔案並註冊排程，無需額外設定；但驗證用的 `CRON_SECRET` 仍需手動於 Dashboard 設定（見 §5.7）。
 
 ---
 

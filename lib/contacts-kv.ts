@@ -271,4 +271,33 @@ export async function getContactsView(): Promise<{
   return { contacts: [...inOrder, ...rest], ordered: true };
 }
 
+/**
+ * 完整覆寫聯絡人資料與手動排序 (備份還原用)：清空現有全部，寫入 snapshot 內容。
+ * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
+ */
+export async function restoreContactsData(
+  contacts: Contact[],
+  order: string[] | null,
+): Promise<void> {
+  if (KV_ENABLED) {
+    const existingIds =
+      (await kv.zrange<string[]>(CONTACT_INDEX_KEY, 0, -1)) ?? [];
+    if (existingIds.length > 0) {
+      await Promise.all(existingIds.map((id) => kv.del(CONTACT_KEY(id))));
+      await kv.del(CONTACT_INDEX_KEY);
+    }
+    for (const c of contacts) {
+      await kv.set(CONTACT_KEY(c.id), c);
+      await kv.zadd(CONTACT_INDEX_KEY, {
+        score: new Date(c.updatedAt).getTime() || Date.now(),
+        member: c.id,
+      });
+    }
+  } else {
+    memStore.clear();
+    contacts.forEach((c) => memStore.set(c.id, c));
+  }
+  await saveContactsOrder(order);
+}
+
 export { KV_ENABLED };
