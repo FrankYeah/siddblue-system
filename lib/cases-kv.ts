@@ -160,6 +160,9 @@ function migrateCase(raw: Case | null): Case | null {
     raw.receivedAmount,
     fallbackDate,
   );
+  const withholdBusinessTax = isInvoice && Boolean(raw.withholdBusinessTax);
+  const withholdIncomeTax = isInvoice && Boolean(raw.withholdIncomeTax);
+  const hasWithholding = withholdBusinessTax || withholdIncomeTax;
   return {
     id: String(raw.id),
     name: String(raw.name ?? "").slice(0, 300),
@@ -168,8 +171,11 @@ function migrateCase(raw: Case | null): Case | null {
     totalAmount: toAmount(raw.totalAmount),
     receivedAmount,
     receivedPayments,
-    withholdBusinessTax: isInvoice && Boolean(raw.withholdBusinessTax),
-    withholdIncomeTax: isInvoice && Boolean(raw.withholdIncomeTax),
+    withholdBusinessTax,
+    withholdIncomeTax,
+    // 已提列稅金的旗標/註記只在有代扣稅務時才有意義，否則強制歸零
+    taxPaid: hasWithholding && Boolean(raw.taxPaid),
+    taxPaidNote: hasWithholding ? String(raw.taxPaidNote ?? "").slice(0, 500) : "",
     partnerCosts: sanitizePartnerCosts(raw.partnerCosts, fallbackDate),
     note: String(raw.note ?? "").slice(0, 5000),
     createdAt,
@@ -189,6 +195,10 @@ function cleanInput(input: CaseInput): CaseInput {
     input?.receivedAmount,
     today,
   );
+  // 稅務代扣只屬於「幫朋友開發票」型；own 型一律 false
+  const withholdBusinessTax = isInvoice && Boolean(input?.withholdBusinessTax);
+  const withholdIncomeTax = isInvoice && Boolean(input?.withholdIncomeTax);
+  const hasWithholding = withholdBusinessTax || withholdIncomeTax;
   return {
     name: String(input?.name ?? "").slice(0, 300),
     caseType,
@@ -196,9 +206,13 @@ function cleanInput(input: CaseInput): CaseInput {
     totalAmount: toAmount(input?.totalAmount),
     receivedAmount,
     receivedPayments,
-    // 稅務代扣只屬於「幫朋友開發票」型；own 型一律 false
-    withholdBusinessTax: isInvoice && Boolean(input?.withholdBusinessTax),
-    withholdIncomeTax: isInvoice && Boolean(input?.withholdIncomeTax),
+    withholdBusinessTax,
+    withholdIncomeTax,
+    // 已提列稅金的旗標/註記只在有代扣稅務時才有意義，否則強制歸零
+    taxPaid: hasWithholding && Boolean(input?.taxPaid),
+    taxPaidNote: hasWithholding
+      ? String(input?.taxPaidNote ?? "").slice(0, 500)
+      : "",
     partnerCosts: sanitizePartnerCosts(input?.partnerCosts, today),
     note: String(input?.note ?? "").slice(0, 5000),
   };

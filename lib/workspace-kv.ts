@@ -5,6 +5,8 @@ import type {
   Inspiration,
   InspirationBoard,
   InspirationStatus,
+  Reminder,
+  ReminderFrequency,
   Todo,
   TodoBoard,
   TodoBucket,
@@ -46,13 +48,19 @@ const INSPIRATION_STATUSES: InspirationStatus[] = [
   "archived",
 ];
 const TODO_BUCKETS: TodoBucket[] = ["now", "later", "longterm", "errand"];
+const REMINDER_FREQUENCIES: ReminderFrequency[] = [
+  "weekly",
+  "monthly",
+  "yearly",
+  "once",
+];
 
 export function emptyInspirationBoard(): InspirationBoard {
   return { idea: [], newsletter: [], shortvideo: [], archived: [] };
 }
 
 export function emptyTodoBoard(): TodoBoard {
-  return { now: [], later: [], longterm: [], errand: [] };
+  return { now: [], later: [], longterm: [], errand: [], reminders: [] };
 }
 
 // ── 清理 / 補齊 (防止壞資料) ──
@@ -87,14 +95,52 @@ function sanitizeTodo(raw: unknown): Todo {
   };
 }
 
+/** 依 frequency 清理 when 值，格式不符時退回合理預設，避免壞資料造成排序/顯示錯誤 */
+function sanitizeReminderWhen(frequency: ReminderFrequency, raw: unknown): string {
+  const s = String(raw ?? "");
+  if (frequency === "weekly") {
+    const n = Number(s);
+    return Number.isInteger(n) && n >= 0 && n <= 6 ? String(n) : "1";
+  }
+  if (frequency === "monthly") {
+    const n = Number(s);
+    return Number.isInteger(n) && n >= 1 && n <= 31 ? String(n) : "1";
+  }
+  if (frequency === "yearly") {
+    return /^\d{2}-\d{2}$/.test(s) ? s : "01-01";
+  }
+  // once
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)
+    ? s
+    : new Date().toISOString().slice(0, 10);
+}
+
+function sanitizeReminder(raw: unknown): Reminder {
+  const r = (raw ?? {}) as Partial<Reminder>;
+  const frequency = REMINDER_FREQUENCIES.includes(
+    r.frequency as ReminderFrequency,
+  )
+    ? (r.frequency as ReminderFrequency)
+    : "weekly";
+  return {
+    id: String(r.id || nanoid(10)),
+    title: String(r.title ?? "").slice(0, 300),
+    frequency,
+    when: sanitizeReminderWhen(frequency, r.when),
+  };
+}
+
 export function sanitizeTodoBoard(raw: unknown): TodoBoard {
   const board = emptyTodoBoard();
-  const src = (raw ?? {}) as Partial<Record<TodoBucket, unknown>>;
+  const src = (raw ?? {}) as Partial<TodoBoard>;
   for (const bucket of TODO_BUCKETS) {
     const list = src[bucket];
     if (Array.isArray(list)) {
       board[bucket] = list.map(sanitizeTodo);
     }
+  }
+  if (Array.isArray(src.reminders)) {
+    board.reminders = src.reminders.slice(0, 300).map(sanitizeReminder);
   }
   return board;
 }

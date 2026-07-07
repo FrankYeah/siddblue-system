@@ -154,8 +154,36 @@ export interface Todo {
   title: string;
 }
 
-/** 待辦清單：依分區分組 */
-export type TodoBoard = Record<TodoBucket, Todo[]>;
+/** 週期提醒的重複頻率 */
+export type ReminderFrequency =
+  | "weekly" // 每週
+  | "monthly" // 每月
+  | "yearly" // 每年
+  | "once"; // 特定日期（僅一次）
+
+/**
+ * 週期性提醒：與上方待辦不同，不會「做完就刪」，而是重複出現的提醒
+ * (如「每週關心學生工作進度」)。
+ */
+export interface Reminder {
+  id: string;
+  /** 提醒內容 */
+  title: string;
+  frequency: ReminderFrequency;
+  /**
+   * 依 frequency 解讀的時間點：
+   *  weekly  → "0"～"6" (星期日=0)
+   *  monthly → "1"～"31" (每月幾號)
+   *  yearly  → "MM-DD"
+   *  once    → "YYYY-MM-DD"
+   */
+  when: string;
+}
+
+/** 待辦清單：四個「做完就刪」分區 + 獨立的週期提醒清單 */
+export interface TodoBoard extends Record<TodoBucket, Todo[]> {
+  reminders: Reminder[];
+}
 
 // ═════════════════════════════════════════════════════════════
 //  知識庫 (Knowledge Base) — 取代 Apple Notes
@@ -278,6 +306,13 @@ export interface Case {
   withholdBusinessTax: boolean;
   /** 代收代扣 3% 營所稅 (僅 caseType = invoice) */
   withholdIncomeTax: boolean;
+  /**
+   * 是否已將代扣稅款從收款中提列出來 (準備繳納/已繳納)；
+   * 僅在有代扣稅務時才有意義，若切回不代扣或 own 型會強制歸零。
+   */
+  taxPaid: boolean;
+  /** 稅金提列/繳納的補充註記 (如：已於 7/10 提列、已匯給會計師) */
+  taxPaidNote: string;
   /** 合作夥伴費用 (外包成本) */
   partnerCosts: PartnerCost[];
   /** 備註 */

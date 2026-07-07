@@ -38,20 +38,29 @@ function trimBareUrl(url: string): string {
   }
 }
 
-/** 對「已 escape、且不含行內碼」的片段套用連結 / 粗體 / 斜體 */
+/** 對「已 escape、且不含行內碼」的片段套用圖片 / 連結 / 粗體 / 斜體 */
 function applyEmphasis(text: string): string {
   let out = text;
 
-  // 連結：[文字](網址) 與裸網址 (http/https) 以同一個 regex 一次處理，
-  // 避免兩段替換互相干擾（如 markdown 連結括號內的網址被再次連結化）
+  // 圖片 ![替代文字](網址)、連結 [文字](網址) 與裸網址 (http/https) 以同一個
+  // regex 一次處理，避免多段替換互相干擾（圖片需先於連結比對，否則開頭的 !
+  // 會被忽略、誤判為一般連結）
   out = out.replace(
-    /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<]+)/g,
+    /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<]+)/g,
     (
       match,
+      imgAlt: string | undefined,
+      imgUrl: string | undefined,
       label: string | undefined,
       url: string | undefined,
       bare: string | undefined,
     ) => {
+      if (imgUrl !== undefined) {
+        const safe = sanitizeUrl(imgUrl);
+        return safe
+          ? `<img src="${safe}" alt="${imgAlt ?? ""}" loading="lazy">`
+          : match;
+      }
       if (bare !== undefined) {
         const clean = trimBareUrl(bare);
         const rest = bare.slice(clean.length);

@@ -7,9 +7,15 @@ import {
   Draggable,
   type DropResult,
 } from "@hello-pangea/dnd";
-import { Plus, Trash2, Loader2, GripVertical } from "lucide-react";
+import { Plus, Trash2, Loader2, GripVertical, Repeat } from "lucide-react";
 import { useQueuedSave, useSyncOnFocus } from "./hooks";
-import type { Todo, TodoBoard as BoardData, TodoBucket } from "@/lib/types";
+import type {
+  Reminder,
+  ReminderFrequency,
+  Todo,
+  TodoBoard as BoardData,
+  TodoBucket,
+} from "@/lib/types";
 
 const BUCKETS: { key: TodoBucket; title: string; accent: string }[] = [
   { key: "now", title: "🔥 立即處理", accent: "border-t-red-400" },
@@ -18,10 +24,140 @@ const BUCKETS: { key: TodoBucket; title: string; accent: string }[] = [
   { key: "errand", title: "🚗 外出待辦", accent: "border-t-violet-400" },
 ];
 
+const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+
+const FREQUENCY_LABELS: Record<ReminderFrequency, string> = {
+  weekly: "每週",
+  monthly: "每月",
+  yearly: "每年",
+  once: "特定日期（僅一次）",
+};
+
 function newId() {
   return (
     globalThis.crypto?.randomUUID?.() ??
     `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+}
+
+/** 依頻率給預設 when 值 (今天對應的星期/幾號/月日) */
+function defaultReminderWhen(frequency: ReminderFrequency): string {
+  const today = new Date();
+  if (frequency === "weekly") return String(today.getDay());
+  if (frequency === "monthly") return String(today.getDate());
+  if (frequency === "yearly") {
+    return `${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+      today.getDate(),
+    ).padStart(2, "0")}`;
+  }
+  return today.toISOString().slice(0, 10);
+}
+
+/** 提醒的排程說明文字，如「每週三」「每月 15 號」「每年 3/15」「2026-08-01」 */
+function reminderScheduleLabel(r: Reminder): string {
+  if (r.frequency === "weekly") {
+    return `每週${WEEKDAY_LABELS[Number(r.when)] ?? ""}`;
+  }
+  if (r.frequency === "monthly") return `每月 ${r.when} 號`;
+  if (r.frequency === "yearly") {
+    const [m, d] = r.when.split("-");
+    return `每年 ${Number(m)}/${Number(d)}`;
+  }
+  return r.when;
+}
+
+/** 下一次發生的日期 (供排序 / 顯示「還有幾天」使用) */
+function nextOccurrence(r: Reminder, today: Date): Date {
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (r.frequency === "once") {
+    const d = new Date(`${r.when}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? base : d;
+  }
+  if (r.frequency === "weekly") {
+    const target = Number(r.when);
+    const diff = (target - base.getDay() + 7) % 7;
+    const d = new Date(base);
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  if (r.frequency === "monthly") {
+    const day = Number(r.when);
+    let d = new Date(base.getFullYear(), base.getMonth(), day);
+    if (d < base) d = new Date(base.getFullYear(), base.getMonth() + 1, day);
+    return d;
+  }
+  // yearly
+  const [mm, dd] = r.when.split("-").map(Number);
+  let d = new Date(base.getFullYear(), (mm || 1) - 1, dd || 1);
+  if (d < base) d = new Date(base.getFullYear() + 1, (mm || 1) - 1, dd || 1);
+  return d;
+}
+
+/** 距下次發生還有幾天的顯示文字 */
+function daysUntilLabel(r: Reminder, today: Date): string {
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const next = nextOccurrence(r, today);
+  const days = Math.round((next.getTime() - base.getTime()) / 86_400_000);
+  if (r.frequency === "once" && days < 0) return "已過期";
+  if (days === 0) return "今天";
+  if (days === 1) return "明天";
+  return `${days} 天後`;
+}
+
+/** 依頻率切換不同的「when」輸入控制項 (星期選單 / 日期數字 / 月日 / 完整日期) */
+function ReminderWhenInput({
+  frequency,
+  value,
+  onChange,
+}: {
+  frequency: ReminderFrequency;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (frequency === "weekly") {
+    return (
+      <select
+        className="field-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {WEEKDAY_LABELS.map((label, i) => (
+          <option key={label} value={String(i)}>
+            星期{label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (frequency === "monthly") {
+    return (
+      <input
+        type="number"
+        min={1}
+        max={31}
+        className="field-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+  if (frequency === "yearly") {
+    return (
+      <input
+        type="date"
+        className="field-input"
+        value={`2000-${value || "01-01"}`}
+        onChange={(e) => onChange(e.target.value.slice(5))}
+      />
+    );
+  }
+  return (
+    <input
+      type="date"
+      className="field-input"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
 
@@ -42,6 +178,21 @@ export default function TodoBoard({
   );
   const [editText, setEditText] = useState("");
   const [toast, setToast] = useState("");
+
+  // ── 週期提醒 ──
+  const [reminderDraft, setReminderDraft] = useState<{
+    title: string;
+    frequency: ReminderFrequency;
+    when: string;
+  }>({ title: "", frequency: "weekly", when: defaultReminderWhen("weekly") });
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(
+    null,
+  );
+  const [reminderEditDraft, setReminderEditDraft] = useState<{
+    title: string;
+    frequency: ReminderFrequency;
+    when: string;
+  }>({ title: "", frequency: "weekly", when: "1" });
   // 掛載後才渲染拖曳元件，避開 SSR / StrictMode 的 mounting 問題
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -78,7 +229,7 @@ export default function TodoBoard({
   // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
   // 編輯中、儲存中、或 10 秒內剛改過（避免讀取複本延遲蓋掉新資料）則跳過。
   useSyncOnFocus(async () => {
-    if (editing || isBusy()) return;
+    if (editing || editingReminderId || isBusy()) return;
     if (Date.now() - lastMutationAt.current < 10_000) return;
     try {
       const res = await fetch("/api/todos");
@@ -148,11 +299,64 @@ export default function TodoBoard({
       later: [...board.later],
       longterm: [...board.longterm],
       errand: [...board.errand],
+      reminders: board.reminders,
     };
     const [moved] = next[from].splice(source.index, 1);
     if (!moved) return;
     next[to].splice(destination.index, 0, moved);
     persist(next);
+  }
+
+  // ── 週期提醒：新增 / 移除 / 編輯 ──
+  function addReminder() {
+    const title = reminderDraft.title.trim();
+    if (!title) return;
+    const reminder: Reminder = {
+      id: newId(),
+      title,
+      frequency: reminderDraft.frequency,
+      when: reminderDraft.when,
+    };
+    persist({ ...board, reminders: [...board.reminders, reminder] });
+    setReminderDraft((d) => ({ ...d, title: "" }));
+  }
+
+  function removeReminder(id: string) {
+    if (editingReminderId === id) setEditingReminderId(null);
+    persist({
+      ...board,
+      reminders: board.reminders.filter((r) => r.id !== id),
+    });
+  }
+
+  function startEditReminder(r: Reminder) {
+    setEditingReminderId(r.id);
+    setReminderEditDraft({
+      title: r.title,
+      frequency: r.frequency,
+      when: r.when,
+    });
+  }
+
+  function saveEditReminder() {
+    if (!editingReminderId) return;
+    const id = editingReminderId;
+    const title = reminderEditDraft.title.trim();
+    setEditingReminderId(null);
+    if (!title) return;
+    persist({
+      ...board,
+      reminders: board.reminders.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              title,
+              frequency: reminderEditDraft.frequency,
+              when: reminderEditDraft.when,
+            }
+          : r,
+      ),
+    });
   }
 
   const grid = (
@@ -228,6 +432,170 @@ export default function TodoBoard({
       ) : (
         grid
       )}
+
+      {/* 週期提醒：每週/每月/每年/特定日期重複出現的提醒事項，與上方「做完就刪」的待辦分開管理 */}
+      <div className="mt-6 rounded-xl border border-t-4 border-t-amber-400 border-paper-border bg-white p-4 shadow-sm">
+        <h3 className="mb-1 flex items-center gap-1.5 text-base font-semibold text-paper-text">
+          <Repeat size={17} className="text-amber-500" /> 週期提醒
+          <span className="ml-1 text-xs font-normal text-paper-muted">
+            {board.reminders.length}
+          </span>
+        </h3>
+        <p className="mb-3 text-sm text-paper-muted">
+          每週／每月／每年或特定日期重複出現的提醒，如「每週關心學生工作進度」，到期不會自動消失，請自行確認後刪除。
+        </p>
+
+        <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_140px_160px_auto]">
+          <input
+            className="field-input text-base"
+            placeholder="提醒內容，如：關心學生工作進度"
+            value={reminderDraft.title}
+            onChange={(e) =>
+              setReminderDraft((d) => ({ ...d, title: e.target.value }))
+            }
+          />
+          <select
+            className="field-input"
+            value={reminderDraft.frequency}
+            onChange={(e) => {
+              const frequency = e.target.value as ReminderFrequency;
+              setReminderDraft({
+                title: reminderDraft.title,
+                frequency,
+                when: defaultReminderWhen(frequency),
+              });
+            }}
+          >
+            {(Object.keys(FREQUENCY_LABELS) as ReminderFrequency[]).map(
+              (f) => (
+                <option key={f} value={f}>
+                  {FREQUENCY_LABELS[f]}
+                </option>
+              ),
+            )}
+          </select>
+          <ReminderWhenInput
+            frequency={reminderDraft.frequency}
+            value={reminderDraft.when}
+            onChange={(when) => setReminderDraft((d) => ({ ...d, when }))}
+          />
+          <button
+            onClick={addReminder}
+            disabled={!reminderDraft.title.trim()}
+            className="btn-primary shrink-0 px-4"
+            title="新增提醒"
+          >
+            <Plus size={18} /> 新增
+          </button>
+        </div>
+
+        {board.reminders.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-paper-border px-3 py-4 text-center text-sm text-paper-muted">
+            目前沒有週期提醒。
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {[...board.reminders]
+              .map((r) => ({ r, next: nextOccurrence(r, new Date()) }))
+              .sort((a, b) => a.next.getTime() - b.next.getTime())
+              .map(({ r }) => {
+                const isEditing = editingReminderId === r.id;
+                return (
+                  <li
+                    key={r.id}
+                    className="rounded-xl border border-paper-border bg-paper-block/40 p-3"
+                  >
+                    {isEditing ? (
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_140px_160px_auto]">
+                        <input
+                          autoFocus
+                          className="field-input text-base"
+                          value={reminderEditDraft.title}
+                          onChange={(e) =>
+                            setReminderEditDraft((d) => ({
+                              ...d,
+                              title: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveEditReminder();
+                            else if (e.key === "Escape")
+                              setEditingReminderId(null);
+                          }}
+                        />
+                        <select
+                          className="field-input"
+                          value={reminderEditDraft.frequency}
+                          onChange={(e) => {
+                            const frequency = e.target
+                              .value as ReminderFrequency;
+                            setReminderEditDraft((d) => ({
+                              title: d.title,
+                              frequency,
+                              when: defaultReminderWhen(frequency),
+                            }));
+                          }}
+                        >
+                          {(
+                            Object.keys(FREQUENCY_LABELS) as ReminderFrequency[]
+                          ).map((f) => (
+                            <option key={f} value={f}>
+                              {FREQUENCY_LABELS[f]}
+                            </option>
+                          ))}
+                        </select>
+                        <ReminderWhenInput
+                          frequency={reminderEditDraft.frequency}
+                          value={reminderEditDraft.when}
+                          onChange={(when) =>
+                            setReminderEditDraft((d) => ({ ...d, when }))
+                          }
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={saveEditReminder}
+                            className="btn-primary shrink-0 px-3"
+                          >
+                            儲存
+                          </button>
+                          <button
+                            onClick={() => setEditingReminderId(null)}
+                            className="btn-ghost shrink-0 px-3"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          onClick={() => startEditReminder(r)}
+                          className="min-w-0 flex-1 cursor-pointer break-words text-base text-paper-text"
+                          title="點擊編輯"
+                        >
+                          {r.title}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">
+                          {reminderScheduleLabel(r)}
+                        </span>
+                        <span className="shrink-0 text-xs text-paper-muted">
+                          {daysUntilLabel(r, new Date())}
+                        </span>
+                        <button
+                          onClick={() => removeReminder(r.id)}
+                          className="shrink-0 rounded-md p-2 text-paper-muted transition hover:bg-red-50 hover:text-red-600"
+                          title="刪除"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+          </ul>
+        )}
+      </div>
 
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-paper-text px-4 py-2.5 text-sm text-white shadow-float sm:bottom-6">

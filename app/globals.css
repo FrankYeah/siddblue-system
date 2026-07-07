@@ -33,7 +33,8 @@ body {
   }
   .field-input {
     @apply w-full rounded-lg border border-paper-border bg-white px-3 py-2 text-sm text-paper-text
-           outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
+           outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20
+           disabled:cursor-not-allowed disabled:border-paper-border disabled:bg-paper-block/60 disabled:text-paper-muted;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
@@ -104,6 +105,9 @@ body {
 }
 .md-content strong {
   @apply font-semibold text-paper-text;
+}
+.md-content img {
+  @apply my-4 max-w-full rounded-lg border border-paper-border;
 }
 .md-content blockquote {
   @apply my-4 border-l-4 border-brand-200 bg-paper-block/60 py-2 pl-4 pr-3 text-paper-muted;

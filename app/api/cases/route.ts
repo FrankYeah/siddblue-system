@@ -31,6 +31,8 @@ export async function POST(req: NextRequest) {
       receivedPayments: input?.receivedPayments ?? [],
       withholdBusinessTax: input?.withholdBusinessTax ?? false,
       withholdIncomeTax: input?.withholdIncomeTax ?? false,
+      taxPaid: input?.taxPaid ?? false,
+      taxPaidNote: input?.taxPaidNote ?? "",
       partnerCosts: input?.partnerCosts ?? [],
       note: input?.note ?? "",
     });

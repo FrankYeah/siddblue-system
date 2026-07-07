@@ -18,6 +18,8 @@ import {
   BadgeCheck,
   ChevronUp,
   ChevronDown,
+  Lock,
+  LockOpen,
 } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { CodeBraces } from "@/components/BrandDecor";
@@ -76,6 +78,22 @@ export default function AdminEditor({
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string>("");
   const [openStatusId, setOpenStatusId] = useState<string | null>(null);
+  // 客戶已線上確認的報價單預設鎖定編輯，避免不小心誤改；需手動「解鎖編輯」才能改
+  const [currentAcceptedAt, setCurrentAcceptedAt] = useState<
+    string | undefined
+  >(undefined);
+  const [unlocked, setUnlocked] = useState(false);
+  const locked = Boolean(currentAcceptedAt) && !unlocked;
+
+  function handleUnlock() {
+    if (
+      window.confirm(
+        "確定要解鎖編輯這份已由客戶確認的報價單嗎？\n\n修改內容可能與客戶當初看到的版本不同，請務必事後告知客戶最新內容。",
+      )
+    ) {
+      setUnlocked(true);
+    }
+  }
 
   const totals = useMemo(
     () => computeTotals(form.items, form.taxInclusive),
@@ -270,6 +288,8 @@ export default function AdminEditor({
     setForm(buildDefaultQuoteInput());
     setCurrentId(null);
     setSavedLink("");
+    setCurrentAcceptedAt(undefined);
+    setUnlocked(false);
     notify("已建立新報價單");
   }
 
@@ -282,6 +302,8 @@ export default function AdminEditor({
       setForm(quoteToInput(quote));
       setCurrentId(id);
       setSavedLink(`${window.location.origin}/quote/${id}`);
+      setCurrentAcceptedAt(quote.acceptedAt);
+      setUnlocked(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch {
       notify("讀取報價單失敗");
@@ -300,6 +322,9 @@ export default function AdminEditor({
       setForm(input);
       setCurrentId(null);
       setSavedLink("");
+      // 複本一律視為全新草稿，即使原單已確認也不繼承鎖定
+      setCurrentAcceptedAt(undefined);
+      setUnlocked(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
       notify("已載入複本，按「儲存並生成連結」即可建立新報價單");
     } catch {
@@ -541,6 +566,33 @@ export default function AdminEditor({
 
         {/* 主編輯區 */}
         <main className="space-y-6">
+          {/* 客戶已線上確認 → 預設鎖定編輯，需明確點擊才能解鎖 */}
+          {locked && (
+            <div className="notion-block flex flex-wrap items-center justify-between gap-3 border-amber-300 bg-amber-50">
+              <div className="flex items-center gap-2 text-sm text-amber-800">
+                <Lock size={16} className="shrink-0" />
+                <span>
+                  客戶已於{" "}
+                  {currentAcceptedAt
+                    ? new Date(currentAcceptedAt).toLocaleDateString("zh-TW")
+                    : ""}{" "}
+                  線上確認此報價單，欄位已鎖定以避免不小心誤改。
+                </span>
+              </div>
+              <button
+                onClick={handleUnlock}
+                className="btn-ghost shrink-0 border-amber-300 text-amber-800 hover:bg-amber-100"
+              >
+                <LockOpen size={15} /> 解鎖編輯
+              </button>
+            </div>
+          )}
+
+          {/* border-0 p-0 m-0：重置 fieldset 預設瀏覽器樣式；disabled 會原生連動停用所有子層表單控制項 */}
+          <fieldset
+            disabled={locked}
+            className="m-0 min-w-0 space-y-6 border-0 p-0"
+          >
           {/* 關鍵資料 */}
           <section className="notion-block">
             <h2 className="section-title mb-4">
@@ -1084,10 +1136,16 @@ export default function AdminEditor({
               <Plus size={16} /> 新增補充說明
             </button>
           </section>
+          </fieldset>
 
-          {/* 動作列 */}
+          {/* 動作列 (在 fieldset 外：CSV 匯出/開啟前台頁/複製連結鎖定時仍可使用，僅「儲存」需先解鎖) */}
           <section className="notion-block sticky bottom-20 z-10 flex flex-wrap items-center gap-3 shadow-float sm:bottom-4">
-            <button onClick={save} className="btn-primary" disabled={saving}>
+            <button
+              onClick={save}
+              className="btn-primary"
+              disabled={saving || locked}
+              title={locked ? "已鎖定，請先點擊上方「解鎖編輯」" : undefined}
+            >
               {saving ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (

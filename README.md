@@ -18,6 +18,7 @@
 | `/api/inspirations` | `GET` 讀取靈感看板 / `PUT` 儲存整個看板（需登入） |
 | `/api/todos` | `GET` 讀取待辦清單 / `PUT` 儲存整個清單（需登入） |
 | `/api/notes` `(/[id])` | 📚 知識庫筆記 CRUD（需登入）；`/shared/note/[token]` 為對外唯讀分享頁 |
+| `/api/notes/upload` | `POST` 🖼️ 上傳圖片至 Vercel Blob（需登入 + `BLOB_READ_WRITE_TOKEN`） |
 | `/api/cases` `(/[id])` | 💼 案件與財務管理 CRUD（需登入） |
 | `/api/contacts` `(/[id])` | 🤝 人脈庫 CRUD（需登入） |
 | `/api/contacts/import` | `POST` 人脈庫 CSV 整批匯入（需登入，單批 ≤ 500 筆） |
@@ -42,6 +43,8 @@
   合作夥伴費用（夥伴名稱為**可搜尋下拉選單串接人脈庫**，選取後可一鍵**連過去看該人詳情**、
   帶出匯款資訊 / 負責項目 / 應付金額 / **逐筆付款紀錄**（訂金/分期，折疊顯示、
   摘要列常駐已付/未付）/ 付款狀態），自動算出**實際淨利 (Net Profit)**；
+  代開發票案有代扣稅務時顯示**代扣稅務合計**（營業稅+營所稅加總）與
+  **「已提列稅金？」勾選＋備註**——收到全款後應先提列稅金再花用，避免誤當淨利；
   頂部另有 💸 **待付夥伴款**總覽（跨案件彙總你欠每位夥伴多少，展開看各案件明細）。
 - **💳 支出紀錄**：公司／個人支出總覽，**Notion 風格資料表**——每列直接顯示
   項目名稱 / 歸屬 / 分類 / 扣款週期 / 金額 / 日期 / 備註，點列彈出 Modal 編輯或刪除，
@@ -53,9 +56,13 @@
   以 `@hello-pangea/dnd` 拖曳切換狀態，點卡片開 Modal 編輯（多行 / 基本 Markdown）；
   已封存欄卡片淡化。每次變更即存回 KV（`workspace:inspirations` 單一 JSON blob）。
 - **✅ 待辦清單**：四區（🔥立即處理 / ⏳稍後再說 / 🎯長期要做的事 / 🚗外出待辦），
-  點「新增」加入、🗑️ 直接刪除，存於 `workspace:todos`。
+  點「新增」加入、🗑️ 直接刪除；另有獨立的 **🔁 週期提醒**區塊，可設定每週／每月／每年
+  或特定日期重複出現的提醒（如「每週關心學生工作進度」），依下次發生日期排序、
+  顯示「今天／明天／N 天後」，到期不會自動消失，需自行確認後刪除，存於 `workspace:todos`。
 - **📚 知識庫**：取代 Apple Notes 的筆記中心（Markdown、標籤、諮詢模板、
-  編輯/預覽切換、一鍵開對外唯讀分享連結 `/shared/note/[token]`）。
+  編輯/預覽切換、一鍵開對外唯讀分享連結 `/shared/note/[token]`）；內容編輯區支援
+  **上傳圖片**（按鈕選檔、或直接貼上/拖曳圖片），經 Vercel Blob 儲存後自動插入
+  Markdown 圖片語法。
 - **🤝 人脈庫**：Connections CRM，**Notion 風格資料表**——每列直接顯示
   姓名 / **職業別彩色標籤**（同職業同色、相鄰分組必不同色）/ 合作方向 / 狀態 /
   熟悉・能力・價格徽章 / **網址連結圖示** / 備註（兩行截斷）；
@@ -94,7 +101,7 @@
 - **項目排序 / 複製報價單**：項目與流程步驟可上下移動；既有報價可一鍵複製為新草稿。
 - **一鍵帶入預設範本**：維護級距（大/小/微）、交付流程、付款帳戶、補充說明一次填好。
 - **CSV 匯出**：帶 UTF-8 BOM，Excel 開啟中文不亂碼。
-- **客戶線上確認**：客戶於 `/quote/[id]` 填名確認後，記錄時間與姓名到 KV，後台列表與正式報價單皆顯示已確認章記；首次確認後鎖定，防止竄改。
+- **客戶線上確認**：客戶於 `/quote/[id]` 填名確認後，記錄時間與姓名到 KV，後台列表與正式報價單皆顯示已確認章記；首次確認後**編輯頁預設鎖定所有欄位**（防止竄改），需點擊「解鎖編輯」二次確認才能修改。
 - **雙版面**：螢幕 = 品牌 Notion 風格；列印 / PDF = 無邊框、方格線的嚴謹 Excel 報價單。
 - **電子大小章**：正式報價單自動載入 `public/assets/company-stamps.png`。
 - **後台密碼保護**：設定 `ADMIN_PASSWORD` 後 `/admin` 與寫入 API 需登入。
@@ -158,9 +165,13 @@ OPENAI_API_KEY="sk-..."
 
 # 📦 資料備份每日自動快照（選用；未設定則排程會被拒絕，手動備份不受影響）
 CRON_SECRET="任意隨機字串，如 openssl rand -hex 32"
+
+# 🖼️ 知識庫圖片上傳（選用；未設定則「上傳圖片」按鈕回覆明確錯誤提示，其餘功能不受影響）
+BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 ```
 
-3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD` / `CRON_SECRET`）。
+3. 部署到 Vercel 時，這些變數會由 KV 整合自動注入（或於 Project Settings → Environment Variables 手動加入 `ADMIN_PASSWORD` / `CRON_SECRET` / `BLOB_READ_WRITE_TOKEN`）。
+4. 知識庫圖片上傳需另外建立 **Blob** 儲存空間：Storage → Create Database → 選 **Blob**，建立後於「Connect」→ `.env.local` 分頁複製 `BLOB_READ_WRITE_TOKEN`。
 
 ### 資料儲存結構
 ```

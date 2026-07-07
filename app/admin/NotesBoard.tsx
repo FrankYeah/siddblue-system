@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Trash2,
@@ -16,6 +16,7 @@ import {
   Share2,
   ExternalLink,
   X,
+  ImagePlus,
 } from "lucide-react";
 import { renderMarkdown } from "@/lib/markdown";
 import type { Note, NoteType } from "@/lib/types";
@@ -89,12 +90,56 @@ export default function NotesBoard({
   const [copied, setCopied] = useState(false);
   const [preview, setPreview] = useState(false); // 內容：編輯 ↔ 預覽（網址可點擊）
   const [origin, setOrigin] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setOrigin(window.location.origin), []);
 
   function flash(msg: string) {
     setToast(msg);
     window.setTimeout(() => setToast(""), 2200);
+  }
+
+  // 上傳圖片至 Vercel Blob，插入游標位置（textarea 未取得焦點時改為插在結尾）
+  async function uploadImage(file: File) {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/notes/upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error || "上傳失敗");
+
+      const markdown = `![${file.name.replace(/\.[^.]+$/, "")}](${data.url})`;
+      const el = contentRef.current;
+      const cur = draft.content;
+      if (el && el.selectionStart != null) {
+        const start = el.selectionStart;
+        const end = el.selectionEnd ?? start;
+        const next = cur.slice(0, start) + markdown + cur.slice(end);
+        setDraft((d) => ({ ...d, content: next }));
+        // 插入後把游標移到新插入內容之後，方便繼續輸入
+        requestAnimationFrame(() => {
+          el.focus();
+          const pos = start + markdown.length;
+          el.setSelectionRange(pos, pos);
+        });
+      } else {
+        setDraft((d) => ({
+          ...d,
+          content: d.content ? `${d.content}\n${markdown}` : markdown,
+        }));
+      }
+      flash("圖片已上傳並插入內容");
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "上傳失敗，請稍後再試");
+    } finally {
+      setUploading(false);
+    }
   }
 
   const selected = notes.find((n) => n.id === selectedId) ?? null;
@@ -453,21 +498,52 @@ export default function NotesBoard({
                 <span className="text-sm font-medium text-paper-muted">
                   內容（支援 Markdown）
                 </span>
-                <button
-                  onClick={() => setPreview((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-paper-muted transition hover:bg-paper-block hover:text-brand-600"
-                  title={preview ? "回到編輯" : "預覽（網址可點擊）"}
-                >
-                  {preview ? (
-                    <>
-                      <Pencil size={13} /> 編輯
-                    </>
-                  ) : (
-                    <>
-                      <Eye size={13} /> 預覽
-                    </>
+                <div className="flex items-center gap-1">
+                  {!preview && (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-paper-muted transition hover:bg-paper-block hover:text-brand-600 disabled:opacity-50"
+                      title="上傳圖片，插入到游標位置"
+                    >
+                      {uploading ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin" /> 上傳中
+                        </>
+                      ) : (
+                        <>
+                          <ImagePlus size={13} /> 上傳圖片
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = ""; // 允許連續選同一檔案也能觸發 onChange
+                      if (file) uploadImage(file);
+                    }}
+                  />
+                  <button
+                    onClick={() => setPreview((v) => !v)}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-paper-muted transition hover:bg-paper-block hover:text-brand-600"
+                    title={preview ? "回到編輯" : "預覽（網址可點擊）"}
+                  >
+                    {preview ? (
+                      <>
+                        <Pencil size={13} /> 編輯
+                      </>
+                    ) : (
+                      <>
+                        <Eye size={13} /> 預覽
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               {preview ? (
                 <div className="min-h-[300px] rounded-lg border border-paper-border bg-paper-block/30 px-4 py-3">
@@ -485,12 +561,31 @@ export default function NotesBoard({
                 </div>
               ) : (
                 <textarea
+                  ref={contentRef}
                   className="field-input min-h-[300px] resize-y font-mono text-sm leading-relaxed"
-                  placeholder="以 Markdown 撰寫內容，例如 ## 標題、- 清單、**粗體**…"
+                  placeholder="以 Markdown 撰寫內容，例如 ## 標題、- 清單、**粗體**…（也可直接貼上或拖入圖片）"
                   value={draft.content}
                   onChange={(e) =>
                     setDraft((d) => ({ ...d, content: e.target.value }))
                   }
+                  onPaste={(e) => {
+                    const file = Array.from(e.clipboardData.files).find((f) =>
+                      f.type.startsWith("image/"),
+                    );
+                    if (file) {
+                      e.preventDefault();
+                      uploadImage(file);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    const file = Array.from(e.dataTransfer.files).find((f) =>
+                      f.type.startsWith("image/"),
+                    );
+                    if (file) {
+                      e.preventDefault();
+                      uploadImage(file);
+                    }
+                  }}
                 />
               )}
 

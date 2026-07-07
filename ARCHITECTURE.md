@@ -248,6 +248,8 @@ type QuoteInput = Omit<Quote,
 
 > `status` 與 `acceptedAt/By` **不在** `QuoteInput` 中，因此一般的 `PUT` 更新**不會覆寫**狀態；狀態只透過 `PATCH`（後台切換）與 `accept`（客戶確認）改變。
 
+- **客戶確認後鎖定編輯（`AdminEditor`）**：一旦 `acceptedAt` 有值，編輯頁預設把整個表單包在 `<fieldset disabled>` 內（原生連動停用所有子層 input/textarea/select/button，含 `react-textarea-autosize`），避免確認後被誤改；需點擊「解鎖編輯」（`window.confirm` 二次確認）才能修改，取消勾選不會回寫任何資料。CSV 匯出／開啟前台頁／複製連結等唯讀動作特意放在 fieldset 外，鎖定時仍可使用，只有「儲存」按鈕會被鎖住。複本（`duplicateQuote`）一律視為全新草稿，不繼承鎖定狀態。
+
 ### 3.2 InspirationBoard（靈感看板）
 
 ```ts
@@ -283,14 +285,31 @@ interface Todo {
   title: string;   // 純文字標題，上限 500 字
 }
 
-type TodoBoard = Record<TodoBucket, Todo[]>;
-// = { now: [...], later: [...], longterm: [...], errand: [...] }
-// 舊資料缺少後來新增的分區 (longterm / errand)，讀取時 sanitizeTodoBoard()
-// 會以 emptyTodoBoard() 為底補上缺的分區為 []，同一慣例可持續擴充新分區
+type ReminderFrequency = "weekly" | "monthly" | "yearly" | "once";
+// 每週 / 每月 / 每年 / 特定日期（僅一次）
+
+interface Reminder {          // 週期性提醒：與 Todo 不同，不會「做完就刪」
+  id: string;
+  title: string;               // 提醒內容，上限 300 字
+  frequency: ReminderFrequency;
+  when: string;                 // 依 frequency 解讀：
+                                 //  weekly  → "0"~"6"（星期日=0）
+                                 //  monthly → "1"~"31"（每月幾號）
+                                 //  yearly  → "MM-DD"
+                                 //  once    → "YYYY-MM-DD"
+}
+
+interface TodoBoard extends Record<TodoBucket, Todo[]> {
+  reminders: Reminder[];        // 獨立於四個「做完就刪」分區的週期提醒清單
+}
+// = { now: [...], later: [...], longterm: [...], errand: [...], reminders: [...] }
+// 舊資料缺少後來新增的分區/欄位，讀取時 sanitizeTodoBoard() 會以
+// emptyTodoBoard() 為底補上缺的分區為 []，同一慣例可持續擴充新分區
 ```
 
-- 極簡設計：刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）。
-- 讀取時經 `sanitizeTodoBoard()` 清理（同上原則）。
+- 四個簡易分區：極簡設計，刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）。
+- **週期提醒（`reminders`）**：獨立的第五區塊，用於「每週關心學生工作進度」這類重複性提醒，與上方待辦的「做完就刪」邏輯不同——到期不會自動消失，需使用者自行確認後手動刪除。`TodoBoard.tsx` 的 `nextOccurrence()` 依 `frequency`/`when` 即時算出下次發生日期（不落地），用於畫面排序（最近到期排最前）與「今天／明天／N 天後／已過期」的顯示文字；`ReminderWhenInput` 依頻率切換不同輸入控制項（星期下拉／月份數字／MM-DD 日期／完整日期）。
+- 讀取時經 `sanitizeTodoBoard()` 清理（同上原則），`when` 值格式不符時退回合理預設，避免壞資料造成排序錯誤。
 
 ### 3.4 Note（知識庫筆記）
 
@@ -312,7 +331,8 @@ interface Note {
 
 - 與報價單相同採**逐筆 CRUD + 索引**：`note:{id}` 存單筆、`notes:index`（Sorted Set）排序、`note:share:{token}` 供對外頁反查。
 - **對外分享**：`/shared/note/[token]` Server Component 以 `getNoteByShareToken()` 反查；找不到或 `isShared === false` 一律 `notFound()`（不洩漏是否存在）。內容經 `lib/markdown.ts` 轉為**白名單 HTML** 後唯讀呈現。
-- **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。
+- **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。圖片語法 `![替代文字](網址)` 需優先於一般連結比對（否則開頭的 `!` 會被忽略、誤判成連結），網址一樣經 `sanitizeUrl()` 白名單，輸出 `<img loading="lazy">`。
+- **圖片上傳（Vercel Blob）**：`NotesBoard` 內容編輯區可點擊「上傳圖片」、或直接貼上／拖曳圖片到 textarea，經 `POST /api/notes/upload`（`multipart/form-data`，限 PNG/JPEG/GIF/WebP、單檔 8MB）呼叫 `@vercel/blob` 的 `put()` 上傳並取得公開網址，前端自動組成 `![檔名](網址)` 插入游標位置。**未設定 `BLOB_READ_WRITE_TOKEN` 時回 501 並顯示明確錯誤訊息**，不影響其餘功能（同 `OPENAI_API_KEY`/`CRON_SECRET` 的優雅降級慣例）；設定方式見 §6 環境變數與 `.env.local.example`。上傳的圖片以 Markdown 純文字形式存在 `content` 裡，因此自動納入既有的備份/匯出（`lib/backup.ts`）與對外分享頁渲染，無需額外處理。
 - 讀取時經 `migrateNote()` 清理/補齊（缺 `shareToken`/`type` 補預設、標籤去重、超長截斷）。
 - **標籤瀏覽器（`NotesBoard` 左側，仿 iPhone 備忘錄）**：標籤即虛擬分類，依使用次數排序（同次數依 zh-Hant 字母序）、每個標籤旁顯示筆記數；固定附「全部筆記」（重置）與「未加標籤」（`tags.length === 0`）兩個虛擬分類，避免筆記量變多後漏標的筆記被淹沒找不到。篩選狀態以 `TagFilter`（`{kind:"all"|"untagged"|"tag"}` 判別式）表示，而非拿字串當哨兵值，避免真實標籤剛好撞名；與列表內搜尋、全域搜尋框皆為 AND 疊加。
 
@@ -351,6 +371,8 @@ interface Case {
   receivedPayments: PaymentEntry[]; // 收款紀錄 (逐筆日期＋金額＋備註，如頭期款/尾款)
   withholdBusinessTax: boolean;  // 代扣 5% 營業稅
   withholdIncomeTax: boolean;    // 代扣 3% 營所稅
+  taxPaid: boolean;              // 是否已將代扣稅款從收款中提列出來 (準備繳納/已繳納)
+  taxPaidNote: string;           // 提列/繳納補充註記；僅在有代扣稅務時才有意義
   partnerCosts: PartnerCost[];   // 外包成本 (上限 50 筆)
   note: string;                  // 備註
   createdAt: string;             // ISO
@@ -362,6 +384,7 @@ type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
 
 - **逐筆 CRUD + 索引**（同報價單/知識庫）：`case:{id}` + `cases:index`。
 - **案件型態（caseType）**：新增案件時先選「💼 我接的案子」或「🧾 幫朋友開發票」。**稅務代扣（5% 營業稅、代收代扣 3% 營所稅）只屬於代開發票型**——own 型 UI 不顯示且 `cleanInput()`/`migrateCase()` 一律強制兩旗標為 `false`（資料層保證一致）；切成 invoice 時預設兩項開啟（可取消）。舊資料遷移為 `own`。
+- **代扣稅務合計 + 已提列旗標（`taxPaid`/`taxPaidNote`）**：有開任一代扣時，編輯區顯示「代扣稅務合計」區塊（直接用 `fin.taxTotal`，即營業稅+營所稅加總）與「已提列稅金？」勾選＋備註輸入——收到全款後應先從中提列稅金另行繳納，避免誤當淨利花掉。`taxPaid`/`taxPaidNote` 只在**有代扣稅務**時才有意義：切回 `own` 型或兩項代扣都關閉時，`cleanInput()`/`migrateCase()` 會強制歸零為 `false`/`""`（同 `withholdBusinessTax`/`withholdIncomeTax` 的一致性保證）。
 - **資料表 + Modal UI（`CasesBoard`）**：Notion 風格全寬資料表——每列直接顯示 名稱／型態／總金額／已收／未收／淨利／夥伴／備註（`line-clamp-2`），點列彈出置中 Modal 編輯（取代舊的左列表右面板）；財務數字 `tabular-nums` 對齊、未收與淨利依正負著色；手機 `overflow-x-auto`（min-w 960px）。頂部「新增」先選型態。
 - **收付款歷程（Payment Ledger）**：`receivedAmount`／`paidAmount` 不再是可直接編輯的數字，改為 `receivedPayments`／`payments` 逐筆紀錄（日期＋金額＋備註）的加總，**伺服器端強制重新計算、忽略前端送來的舊式數字欄位**（`lib/cases-kv.ts` 的 `deriveReceived()` / `sanitizePartnerCosts()`），避免前端 bug 或亂改導致金額失真。`CasesBoard` 的 `PaymentLedger` 元件為 case 收款（Modal 內常駐顯示）與每筆夥伴付款（收折疊、summary 列常駐顯示已付/未付）共用同一元件。
   - **舊資料相容 (backfill)**：改版前只有單一數字欄位的既有案件，讀取時（`migrateCase()`/`sanitizePartnerCosts()`）若逐筆紀錄為空但舊數字 > 0，自動補一筆「既有已收款／已付金額（系統轉入）」的歷史快照（日期取案件建立時間），確保金額**不因改版被清零**；使用者之後編輯存檔即成為正式紀錄。
@@ -467,6 +490,7 @@ type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
 | `GET /api/notes/[id]` | 讀取單筆筆記（後台用） | 需登入 | `getNote()` |
 | `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
 | `DELETE /api/notes/[id]` | 刪除筆記（同時移出 index 與 share 對應） | 需登入 | `deleteNote()` |
+| `POST /api/notes/upload` | 🖼️ 上傳圖片至 Vercel Blob，`multipart/form-data` 欄位 `file`（限 PNG/JPEG/GIF/WebP、≤8MB）→ `{ url }`。未設 `BLOB_READ_WRITE_TOKEN` 回 501 | 需登入 | `put()`（`@vercel/blob`） |
 | `GET /api/cases` | 列出所有案件（完整內容，新→舊） | 需登入 | `getAllCases()` |
 | `POST /api/cases` | 建立新案件 | 需登入 | `createCase()` |
 | `GET /api/cases/[id]` | 讀取單筆案件 | 需登入 | `getCase()` |
@@ -645,6 +669,7 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 | `NEXT_PUBLIC_SITE_URL` | 產生對外連結的基底網址 | 選填 |
 | `OPENAI_API_KEY` | ✨ 內容矩陣引擎（`/api/matrix`）呼叫 gpt-4o 所需；未設定時該功能回 503、其餘功能不受影響 | 使用矩陣生成時必填 |
 | `CRON_SECRET` | 📦 驗證 Vercel Cron 對 `/api/backup/snapshot` 的每日排程呼叫；未設定時排程會被拒絕，但後台手動「立即備份」不受影響 | 建議設定（見 §5.7） |
+| `BLOB_READ_WRITE_TOKEN` | 🖼️ 知識庫圖片上傳（`/api/notes/upload`）呼叫 `@vercel/blob` 所需；未設定時該功能回 501、其餘功能不受影響 | 使用圖片上傳時必填 |
 
 ---
 

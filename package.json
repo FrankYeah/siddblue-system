@@ -16,6 +16,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.80",
     "@hello-pangea/dnd": "^18.0.1",
+    "@vercel/blob": "^2.5.0",
     "@vercel/kv": "^2.0.0",
     "ai": "^6.0.218",
     "lucide-react": "^0.454.0",

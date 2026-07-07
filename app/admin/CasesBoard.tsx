@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Check,
   ExternalLink,
+  Receipt,
 } from "lucide-react";
 import {
   computeCaseFinance,
@@ -49,6 +50,8 @@ const EMPTY_DRAFT: CaseInput = {
   receivedPayments: [],
   withholdBusinessTax: false,
   withholdIncomeTax: false,
+  taxPaid: false,
+  taxPaidNote: "",
   partnerCosts: [],
   note: "",
 };
@@ -95,6 +98,8 @@ function caseToDraft(c: Case): CaseInput {
     receivedPayments: c.receivedPayments.map((e) => ({ ...e })),
     withholdBusinessTax: c.withholdBusinessTax,
     withholdIncomeTax: c.withholdIncomeTax,
+    taxPaid: c.taxPaid,
+    taxPaidNote: c.taxPaidNote,
     partnerCosts: c.partnerCosts.map((p) => ({
       ...p,
       payments: p.payments.map((e) => ({ ...e })),
@@ -572,6 +577,8 @@ export default function CasesBoard({
         caseType: t,
         withholdBusinessTax: t === "invoice",
         withholdIncomeTax: t === "invoice",
+        taxPaid: false,
+        taxPaidNote: "",
       };
     });
   }
@@ -1087,6 +1094,53 @@ export default function CasesBoard({
                 ))}
               </div>
             )}
+
+            {/* (d-2) 代扣稅務合計 + 是否已提列/支付 — 有開任一代扣才顯示
+                收到全款後應從中提列稅金另行繳納，故需明確標記＋備註，避免誤當作淨利花掉 */}
+            {draft.caseType === "invoice" &&
+              (draft.withholdBusinessTax || draft.withholdIncomeTax) && (
+                <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm text-violet-800">
+                      <Receipt size={16} className="shrink-0" />
+                      <span>
+                        代扣稅務合計（營業稅 + 營所稅）：
+                        <strong className="ml-1">
+                          {formatNT(fin.taxTotal)}
+                        </strong>
+                      </span>
+                    </div>
+                    <label className="inline-flex min-h-[36px] cursor-pointer items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-sm text-violet-800 transition hover:bg-violet-100">
+                      <input
+                        type="checkbox"
+                        checked={draft.taxPaid}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            taxPaid: e.target.checked,
+                          }))
+                        }
+                        className="h-4 w-4 accent-violet-600"
+                      />
+                      {draft.taxPaid ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Check size={14} /> 已提列稅金
+                        </span>
+                      ) : (
+                        "已提列稅金？"
+                      )}
+                    </label>
+                  </div>
+                  <input
+                    value={draft.taxPaidNote}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, taxPaidNote: e.target.value }))
+                    }
+                    placeholder="提列/繳納備註（如：已於 7/10 從收款中提列、已匯給會計師）"
+                    className="field-input mt-2 bg-white text-sm"
+                  />
+                </div>
+              )}
 
             {/* (c) 合作夥伴費用 (外包成本) */}
             <div className="mb-4">
