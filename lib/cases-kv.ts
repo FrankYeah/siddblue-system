@@ -56,6 +56,13 @@ function toDateStr(raw: unknown, fallbackDate: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallbackDate;
 }
 
+/** 結案時間清理：非法值一律視為「未結案」(undefined)，避免壞資料卡在已結案狀態 */
+function sanitizeClosedAt(raw: unknown): string | undefined {
+  if (!raw) return undefined;
+  const d = new Date(String(raw));
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 function sanitizePaymentEntries(
   raw: unknown,
   fallbackDate: string,
@@ -178,6 +185,7 @@ function migrateCase(raw: Case | null): Case | null {
     taxPaidNote: hasWithholding ? String(raw.taxPaidNote ?? "").slice(0, 500) : "",
     partnerCosts: sanitizePartnerCosts(raw.partnerCosts, fallbackDate),
     note: String(raw.note ?? "").slice(0, 5000),
+    closedAt: sanitizeClosedAt(raw.closedAt),
     createdAt,
     updatedAt: String(raw.updatedAt || new Date().toISOString()),
   };
@@ -215,6 +223,7 @@ function cleanInput(input: CaseInput): CaseInput {
       : "",
     partnerCosts: sanitizePartnerCosts(input?.partnerCosts, today),
     note: String(input?.note ?? "").slice(0, 5000),
+    closedAt: sanitizeClosedAt(input?.closedAt),
   };
 }
 

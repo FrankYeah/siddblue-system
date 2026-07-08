@@ -17,6 +17,8 @@ import {
   Check,
   ExternalLink,
   Receipt,
+  CheckCircle2,
+  RotateCcw,
 } from "lucide-react";
 import {
   computeCaseFinance,
@@ -105,6 +107,7 @@ function caseToDraft(c: Case): CaseInput {
       payments: p.payments.map((e) => ({ ...e })),
     })),
     note: c.note,
+    closedAt: c.closedAt,
   };
 }
 
@@ -387,6 +390,8 @@ export default function CasesBoard({
   quotes,
   contacts,
   onOpenContact,
+  focusCaseId = null,
+  onFocusHandled,
   searchQuery = "",
 }: {
   initialCases: Case[];
@@ -396,6 +401,10 @@ export default function CasesBoard({
   contacts: Contact[];
   /** 點夥伴「連過去」→ 切到人脈庫並開啟該聯絡人 Modal */
   onOpenContact?: (id: string) => void;
+  /** 由他處（人脈庫「相關案件」）指定要開啟詳情的案件 id */
+  focusCaseId?: string | null;
+  /** 已處理 focus 後通知父層清除，避免重複開啟 */
+  onFocusHandled?: () => void;
   /** 全域搜尋框（AdminWorkspace）傳入的關鍵字 */
   searchQuery?: string;
 }) {
@@ -410,6 +419,8 @@ export default function CasesBoard({
     new Set(),
   );
   const [expandedDues, setExpandedDues] = useState<Set<string>>(new Set());
+  // 已結案案件預設從主列表隱藏，避免結案後仍佔版面；勾選後才顯示
+  const [showClosed, setShowClosed] = useState(false);
 
   function togglePaymentsExpanded(id: string) {
     setExpandedPayments((s) => {
@@ -438,33 +449,42 @@ export default function CasesBoard({
     ? (cases.find((c) => c.id === modalId) ?? null)
     : null;
 
-  // 🔔 催款提醒：所有「有未收款餘額」的案件 (金額大 → 小)
+  // 🔔 催款提醒：所有「有未收款餘額」的案件 (金額大 → 小)；已結案不再提醒催款
   const unpaidCases = useMemo(
     () =>
       cases
+        .filter((c) => !c.closedAt)
         .map((c) => ({ c, fin: computeCaseFinance(c) }))
         .filter(({ fin }) => fin.unpaidBalance > 0)
         .sort((a, b) => b.fin.unpaidBalance - a.fin.unpaidBalance),
     [cases],
   );
 
-  // 💸 待付夥伴款：跨案件彙總尚未結清的合作夥伴費用 (依夥伴分組)
+  // 💸 待付夥伴款：跨案件彙總尚未結清的合作夥伴費用 (依夥伴分組)；
+  // 案件結案不代表欠夥伴的錢消失，故涵蓋所有案件 (含已結案)
   const partnerDues = useMemo(() => collectPartnerDues(cases), [cases]);
+
+  const closedCount = useMemo(
+    () => cases.filter((c) => c.closedAt).length,
+    [cases],
+  );
 
   const visible = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return cases;
-    return cases.filter(
-      (c) =>
+    return cases.filter((c) => {
+      if (!showClosed && c.closedAt) return false;
+      if (!q) return true;
+      return (
         c.name.toLowerCase().includes(q) ||
         c.note.toLowerCase().includes(q) ||
         c.partnerCosts.some(
           (p) =>
             p.partnerName.toLowerCase().includes(q) ||
             p.role.toLowerCase().includes(q),
-        ),
-    );
-  }, [cases, searchQuery]);
+        )
+      );
+    });
+  }, [cases, searchQuery, showClosed]);
 
   // Modal 內即時財務分解 (打字即更新)
   const fin = computeCaseFinance(draft);
@@ -477,6 +497,16 @@ export default function CasesBoard({
     setDraft(caseToDraft(c));
     setModalId(c.id);
   }
+
+  // 由人脈庫「相關案件」指定：切到本頁籤時自動開啟該案件 Modal
+  useEffect(() => {
+    if (!focusCaseId) return;
+    const target = cases.find((c) => c.id === focusCaseId);
+    if (target) openCase(target);
+    else flash("找不到該案件（可能已刪除）");
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCaseId]);
 
   function closeModal(force = false) {
     if (!force && dirty && !window.confirm("尚未儲存的變更將遺失，確定關閉？")) {
@@ -492,6 +522,14 @@ export default function CasesBoard({
     }
     setModalId(null);
     onOpenContact?.(id);
+  }
+
+  /** 標記已結案 / 重新開啟：僅切換 draft，需按「儲存」才會真正落地 */
+  function toggleClosed() {
+    setDraft((d) => ({
+      ...d,
+      closedAt: d.closedAt ? undefined : new Date().toISOString(),
+    }));
   }
 
   // Esc 關閉 Modal
@@ -830,10 +868,23 @@ export default function CasesBoard({
         </div>
       )}
 
-      <div className="mb-2 text-xs text-paper-muted">
-        {searchQuery.trim()
-          ? `${visible.length} / ${cases.length} 個案件`
-          : `共 ${cases.length} 個案件`}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-paper-muted">
+        <span>
+          {searchQuery.trim()
+            ? `${visible.length} / ${cases.length} 個案件`
+            : `共 ${cases.length} 個案件`}
+        </span>
+        {closedCount > 0 && (
+          <label className="inline-flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+              className="h-3.5 w-3.5 accent-brand-600"
+            />
+            顯示已結案（{closedCount}）
+          </label>
+        )}
       </div>
 
       {/* ── 資料表 (手機橫向滾動) ── */}
@@ -873,12 +924,22 @@ export default function CasesBoard({
               <div
                 key={c.id}
                 onClick={() => openCase(c)}
-                className={`${GRID} min-h-[52px] cursor-pointer border-b border-paper-border/70 px-3 py-2 transition last:border-b-0 hover:bg-paper-block/40`}
+                className={`${GRID} min-h-[52px] cursor-pointer border-b border-paper-border/70 px-3 py-2 transition last:border-b-0 hover:bg-paper-block/40 ${
+                  c.closedAt ? "opacity-55" : ""
+                }`}
               >
-                <span className="truncate text-sm font-medium text-paper-text">
-                  {c.name || (
-                    <span className="text-paper-muted">（未命名案件）</span>
+                <span className="flex min-w-0 items-center gap-1 truncate text-sm font-medium text-paper-text">
+                  {c.closedAt && (
+                    <CheckCircle2
+                      size={13}
+                      className="shrink-0 text-emerald-600"
+                    />
                   )}
+                  <span className="truncate">
+                    {c.name || (
+                      <span className="text-paper-muted">（未命名案件）</span>
+                    )}
+                  </span>
                 </span>
 
                 <span>
@@ -954,14 +1015,47 @@ export default function CasesBoard({
               <h3 className="text-base font-semibold text-paper-text">
                 {draft.name || "（未命名案件）"}
               </h3>
-              <button
-                onClick={() => closeModal()}
-                className="rounded-lg p-1.5 text-paper-muted transition hover:bg-paper-block hover:text-paper-text"
-                aria-label="關閉"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  onClick={toggleClosed}
+                  className={`btn-ghost text-xs ${
+                    draft.closedAt
+                      ? "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      : ""
+                  }`}
+                  title={
+                    draft.closedAt
+                      ? "重新開啟這個案件"
+                      : "標記為已結案（仍需按下方「儲存」）"
+                  }
+                >
+                  {draft.closedAt ? (
+                    <>
+                      <RotateCcw size={13} /> 重新開啟
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={13} /> 標記為已結案
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => closeModal()}
+                  className="rounded-lg p-1.5 text-paper-muted transition hover:bg-paper-block hover:text-paper-text"
+                  aria-label="關閉"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
+
+            {draft.closedAt && (
+              <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                <CheckCircle2 size={15} className="shrink-0" />
+                已於 {new Date(draft.closedAt).toLocaleDateString("zh-TW")}{" "}
+                標記為已結案。
+              </div>
+            )}
 
             <input
               className="field-input mb-3 text-base font-medium"

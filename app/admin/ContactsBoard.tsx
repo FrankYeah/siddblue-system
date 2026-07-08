@@ -20,6 +20,7 @@ import {
   RotateCcw,
   ChevronDown,
   Check,
+  Briefcase,
 } from "lucide-react";
 import { parseContactsCsv } from "@/lib/contacts-csv";
 import {
@@ -30,12 +31,16 @@ import {
 } from "@/lib/contacts-sort";
 import { useQueuedSave } from "./hooks";
 import type {
+  Case,
   Contact,
   ContactInput,
   ContactLevel,
   ContactStatus,
   CooperationType,
+  PartnerPayStatus,
 } from "@/lib/types";
+import { partnerCostPaid } from "@/lib/finance";
+import { formatCurrency } from "@/lib/format";
 
 // ─────────────────────────────────────────────────────────────
 //  🤝 人脈資料庫 (Connections CRM) — Notion 風格資料表
@@ -91,6 +96,16 @@ const COOP_META: Record<
     hint: "網紅、互惠合作",
     chip: "bg-purple-100 text-purple-700",
   },
+};
+
+/** 「相關案件」列表的付款狀態徽章 (同 CasesBoard 的 PAY_STATUS_META 配色) */
+const REL_PAY_STATUS_META: Record<
+  PartnerPayStatus,
+  { label: string; badge: string }
+> = {
+  unpaid: { label: "未支付", badge: "bg-red-100 text-red-700" },
+  deposit: { label: "已付訂金", badge: "bg-amber-100 text-amber-700" },
+  paid: { label: "已結清", badge: "bg-emerald-100 text-emerald-700" },
 };
 
 /** 資料表欄位樣板 (表頭與每一列共用，確保對齊)：
@@ -169,6 +184,8 @@ function contactToDraft(c: Contact): ContactInput {
 export default function ContactsBoard({
   initialContacts,
   initialOrdered,
+  cases = [],
+  onOpenCase,
   focusContactId = null,
   onFocusHandled,
   searchQuery = "",
@@ -176,6 +193,10 @@ export default function ContactsBoard({
   initialContacts: Contact[];
   /** 伺服器端是否已套用手動排序 (contacts:order 存在) */
   initialOrdered: boolean;
+  /** 💼 案件管理的全部案件（點進聯絡人時反查「相關案件」用，僅供顯示，非即時同步） */
+  cases?: Case[];
+  /** 點「相關案件」→ 切到案件管理並開啟該案件 Modal */
+  onOpenCase?: (id: string) => void;
   /** 由他處（案件管理夥伴「連過去」）指定要開啟詳情的聯絡人 id */
   focusContactId?: string | null;
   /** 已處理 focus 後通知父層清除，避免重複開啟 */
@@ -339,6 +360,29 @@ export default function ContactsBoard({
       ? (contacts.find((c) => c.id === modal.afterId) ?? null)
       : null;
 
+  // 反向連結：這位聯絡人以夥伴身分出現在哪些案件（同案件多筆費用列合併為一項）
+  const relatedCases = useMemo(() => {
+    if (!editingContact) return [];
+    const id = editingContact.id;
+    return cases
+      .map((c) => {
+        const rows = c.partnerCosts.filter((p) => p.contactId === id);
+        if (rows.length === 0) return null;
+        const amount = rows.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const paid = rows.reduce((sum, p) => sum + partnerCostPaid(p), 0);
+        const payStatus: PartnerPayStatus = rows.every(
+          (p) => p.payStatus === "paid",
+        )
+          ? "paid"
+          : rows.some((p) => p.payStatus !== "unpaid")
+            ? "deposit"
+            : "unpaid";
+        return { case: c, amount, paid, payStatus };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => b.case.updatedAt.localeCompare(a.case.updatedAt));
+  }, [cases, editingContact]);
+
   const dirty = modal
     ? modal.mode === "create"
       ? JSON.stringify(draft) !== JSON.stringify(EMPTY_DRAFT)
@@ -394,6 +438,15 @@ export default function ContactsBoard({
     if (!cur.includes(t)) {
       setDraft((d) => ({ ...d, profession: [...cur, t].join(", ") }));
     }
+  }
+
+  /** 「相關案件」跳轉：先關人脈 Modal (避免切頁後殘留的全域 Esc 監聽)，再導向案件管理 */
+  function goToCase(id: string) {
+    if (dirty && !window.confirm("尚未儲存的變更將遺失，仍要前往案件管理？")) {
+      return;
+    }
+    setModal(null);
+    onOpenCase?.(id);
   }
 
   function closeModal(force = false) {
@@ -1142,6 +1195,42 @@ export default function ContactsBoard({
                 }
               />
             </div>
+
+            {/* 反向連結：這位聯絡人以夥伴身分出現在哪些案件 (僅編輯既有聯絡人時顯示) */}
+            {modal.mode === "edit" && relatedCases.length > 0 && (
+              <div className="mt-4">
+                <label className="field-label">
+                  <Briefcase size={13} className="mr-1 inline" />
+                  相關案件（{relatedCases.length}）
+                </label>
+                <div className="space-y-1.5">
+                  {relatedCases.map(({ case: rc, amount, paid, payStatus }) => (
+                    <button
+                      key={rc.id}
+                      type="button"
+                      onClick={() => goToCase(rc.id)}
+                      className="flex w-full items-center gap-2 rounded-lg border border-paper-border bg-paper-block/30 px-3 py-2 text-left text-sm transition hover:bg-paper-block"
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium text-paper-text">
+                        {rc.name || "（未命名案件）"}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-paper-muted">
+                        已付 {formatCurrency(paid)} / 應付 {formatCurrency(amount)}
+                      </span>
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${REL_PAY_STATUS_META[payStatus].badge}`}
+                      >
+                        {REL_PAY_STATUS_META[payStatus].label}
+                      </span>
+                      <ExternalLink
+                        size={13}
+                        className="shrink-0 text-paper-muted"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 flex items-center justify-between">
               {modal.mode === "edit" ? (

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Lock, Loader2 } from "lucide-react";
+import { Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import { PaperPlane, CodeBraces } from "@/components/BrandDecor";
 import { COMPANY_NAME } from "@/lib/defaults";
 
 export default function AdminLogin() {
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,9 +23,12 @@ export default function AdminLogin() {
       });
       if (res.ok) {
         window.location.reload();
-      } else {
-        setError("密碼錯誤，請再試一次");
+        return;
       }
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setError(data?.error || "密碼錯誤，請再試一次");
     } catch {
       setError("登入失敗，請稍後再試");
     } finally {
@@ -54,14 +58,25 @@ export default function AdminLogin() {
           </p>
         </div>
 
-        <input
-          type="password"
-          autoFocus
-          className="field-input"
-          placeholder="後台密碼"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            autoFocus
+            className="field-input pr-11"
+            placeholder="後台密碼"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-paper-muted transition hover:bg-paper-block hover:text-paper-text"
+            title={showPassword ? "隱藏密碼" : "顯示密碼"}
+            aria-label={showPassword ? "隱藏密碼" : "顯示密碼"}
+          >
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
         <button type="submit" className="btn-primary mt-4 w-full" disabled={loading}>

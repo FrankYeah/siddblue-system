@@ -40,6 +40,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       taxPaidNote: input?.taxPaidNote ?? "",
       partnerCosts: input?.partnerCosts ?? [],
       note: input?.note ?? "",
+      closedAt: input?.closedAt,
     });
     if (!record) {
       return NextResponse.json({ error: "找不到案件" }, { status: 404 });

@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
       taxPaidNote: input?.taxPaidNote ?? "",
       partnerCosts: input?.partnerCosts ?? [],
       note: input?.note ?? "",
+      closedAt: input?.closedAt,
     });
     return NextResponse.json({ case: record }, { status: 201 });
   } catch (err) {

@@ -317,6 +317,8 @@ export interface Case {
   partnerCosts: PartnerCost[];
   /** 備註 */
   note: string;
+  /** 結案時間 (ISO 字串)，undefined = 進行中 */
+  closedAt?: string;
   /** 建立時間 (ISO 字串) */
   createdAt: string;
   /** 最後更新時間 (ISO 字串) */

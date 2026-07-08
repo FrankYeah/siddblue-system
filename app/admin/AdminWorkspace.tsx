@@ -78,11 +78,19 @@ export default function AdminWorkspace({
   const searchable = Boolean(SEARCH_PLACEHOLDER[tab]);
   // 跨頁籤：案件的夥伴「連過去看詳情」→ 切到人脈庫並打開該聯絡人的 Modal
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
+  // 跨頁籤（反向）：人脈的「相關案件」→ 切到案件管理並打開該案件的 Modal
+  const [focusCaseId, setFocusCaseId] = useState<string | null>(null);
 
   function openContact(id: string) {
     setSearch("");
     setTab("contacts");
     setFocusContactId(id);
+  }
+
+  function openCase(id: string) {
+    setSearch("");
+    setTab("cases");
+    setFocusCaseId(id);
   }
 
   async function logout() {
@@ -183,6 +191,8 @@ export default function AdminWorkspace({
             quotes={initialQuotes}
             contacts={initialContacts}
             onOpenContact={openContact}
+            focusCaseId={focusCaseId}
+            onFocusHandled={() => setFocusCaseId(null)}
             searchQuery={tab === "cases" ? search : ""}
           />
         </div>
@@ -205,6 +215,8 @@ export default function AdminWorkspace({
           <ContactsBoard
             initialContacts={initialContacts}
             initialOrdered={initialContactsOrdered}
+            cases={initialCases}
+            onOpenCase={openCase}
             focusContactId={focusContactId}
             onFocusHandled={() => setFocusContactId(null)}
             searchQuery={tab === "contacts" ? search : ""}

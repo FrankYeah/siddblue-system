@@ -375,6 +375,7 @@ interface Case {
   taxPaidNote: string;           // 提列/繳納補充註記；僅在有代扣稅務時才有意義
   partnerCosts: PartnerCost[];   // 外包成本 (上限 50 筆)
   note: string;                  // 備註
+  closedAt?: string;             // 結案時間 (ISO)，undefined = 進行中
   createdAt: string;             // ISO
   updatedAt: string;             // ISO
 }
@@ -392,6 +393,7 @@ type CaseInput = Omit<Case, "id" | "createdAt" | "updatedAt">;
 - **關聯報價單為快照**：在後台選擇報價單時把 `clientName`／`total` 帶入 `name`／`totalAmount`，之後可自行修改；報價單後續變動**不會**回寫案件。
 - **衍生值不落地**：未收款餘額、代扣稅額、淨利一律由 `lib/finance.ts` 的 `computeCaseFinance()` 即時計算（見 §5.5），KV 只存輸入值。
 - 金額經 `toAmount()` 清理：取整數、擋負值與超過 10 億的離譜值。
+- **結案狀態（`closedAt`）**：Modal 標頭有「標記為已結案／重新開啟」按鈕，切換的是 `draft.closedAt`（純前端狀態，仍需按「儲存」才落地，與其餘欄位一致，無獨立 API）；`lib/cases-kv.ts` 的 `sanitizeClosedAt()` 擋非法日期值。已結案案件在資料表**預設隱藏**（表頭有「顯示已結案（N）」勾選可切回），顯示時列樣式淡化（`opacity-55`）並附 ✅ 圖示；**🔔 催款提醒排除已結案案件**（已結案不用再追著客戶收款），但 **💸 待付夥伴款不受影響**（案件結案不代表欠夥伴的錢消失，仍需照付）。
 
 ### 3.6 Contact（人脈資料庫）
 
@@ -434,6 +436,7 @@ type ContactInput = Omit<Contact, "id" | "createdAt" | "updatedAt">;
   - 第一列為表頭，以**別名包含比對**對應欄位（姓名/職業別/聯絡方式/網址/熟悉度/喜好度/能力值/價格/狀態/合作方向/匯款資訊/備註，順序不拘、可缺欄）；找不到「姓名」欄即報錯。
   - 值正規化：`高/中/低/不確定`→`high/medium/low/unknown`（複合值如「中, 高」取較明確者：高 > 低 > 中；未填/無法辨識→`unknown`）、`就業/接案/創業/學生`→`employed/freelance/startup/student`（未填→`unknown`）、含「業界/網紅/互惠」→`industry`（預設 `project`）。缺姓名的資料列略過。
   - 伺服器端以 **KV pipeline** 一次寫入（單批上限 500 筆），依 CSV 順序遞增時間戳確保索引排序穩定。
+- **反向連結：相關案件**（`ContactsBoard` 編輯 Modal）：這位聯絡人以夥伴身分出現在哪些案件的**反向查詢**（`Case.partnerCosts[].contactId === contact.id`），是案件管理「夥伴連過去看詳情」的反方向。`AdminWorkspace` 傳入 `cases`（初始快照，與 `CasesBoard` 收到的 `contacts` 同一慣例——非即時同步，切頁時資料是當次載入的定格）；同案件多筆費用列會合併成一項（金額加總、已付加總、付款狀態取最悲觀者）。點列跳轉邏輯與案件管理的「連過去」對稱：`goToCase()` 先關自身 Modal（避免殘留全域 Esc 監聽）→ `onOpenCase` 切到案件管理頁籤 → `focusCaseId` 觸發 `CasesBoard` 的 `useEffect` 自動開啟該案件 Modal（`onFocusHandled` 清空避免重複開啟），與既有 `focusContactId`/`onOpenContact` 完全對稱的一組 props。
 
 ### 3.7 Expense（支出紀錄）
 
@@ -513,7 +516,7 @@ type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
 | `GET /api/backup/snapshot` | 建立一份備份快照，自動輪替只保留最近 7 份 | 需登入 **或** Cron（見 §5.7） | `snapshotBackup()` |
 | `GET /api/backup/list` | 列出所有備份快照（新→舊，含各模組筆數摘要） | 需登入 | `listBackups()` |
 | `POST /api/backup/restore` | **危險操作**：還原至指定快照，body `{ id }`，會清空並覆寫目前全部資料 | 需登入 | `restoreBackup()` |
-| `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie | 公開 | `verifyPassword()` + `expectedToken()` |
+| `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie；同 IP 15 分鐘內失敗 5 次鎖定 15 分鐘（回 429） | 公開 | `verifyPassword()` + `lib/login-throttle.ts` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
 | `GET /api/test-db` | KV 連線健檢（寫→讀→比對→刪）；`?keep=1` 保留 | 公開 | 直接呼叫 `kv` |
 
@@ -643,6 +646,8 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 
 > 🔒 安全守則：切勿在程式或紀錄中輸出 `ADMIN_PASSWORD`；`.env.local` 須維持在 `.gitignore`。
 
+**防暴力破解（`lib/login-throttle.ts`）**：`POST /api/admin/login` 依來源 IP（`x-forwarded-for` 標頭，取不到則退回 `req.ip`）限制連續失敗次數——同一 IP 在 15 分鐘內累計失敗達 5 次即鎖定 15 分鐘，鎖定期間即使密碼正確也拒絕（回 `429` 附倒數分鐘數的錯誤訊息）；登入成功立即清除該 IP 的失敗計數。記錄本身以單一 TTL（15 分鐘）隨最後一次失敗延展，久無失敗自然過期歸零，無需額外清理排程；儲存慣例與其餘 `*-kv.ts` 一致（`KV_ENABLED` 判斷、無 KV 時退回 `globalThis` 記憶體）。**密碼顯示切換**：`AdminLogin.tsx` 密碼欄位旁附眼睛圖示，點擊切換 `input type="password"/"text"`，純前端狀態、不影響送出的密碼內容。
+
 ### 5.7 資料備份與匯出（`lib/backup.ts`）
 
 系統的所有資料都在同一個 Upstash KV 執行個體，看板類又是整包覆寫——一次寫入錯誤就可能蓋掉全部資料，因此設計了獨立的備份層：
@@ -654,6 +659,17 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 - **每日自動快照（Vercel Cron）**：`vercel.json` 設定 `crons: [{ path: "/api/backup/snapshot", schedule: "0 18 * * *" }]`（UTC 18:00 = 台北 02:00）。Vercel Cron 只送 `GET`；`/api/backup/snapshot` 的 `isCronOrAdmin()` 判斷請求是否帶有 `Authorization: Bearer <CRON_SECRET>`（Vercel 在設定 `CRON_SECRET` 環境變數後會自動附加此標頭），否則退回一般的 `isAuthenticated()` cookie 驗證（供後台「立即備份」手動按鈕使用）。
   > ⚠️ 需在 **Vercel Dashboard → Project → Settings → Environment Variables** 手動設定 `CRON_SECRET`（任意隨機字串，如 `openssl rand -hex 32`）才能讓每日排程通過驗證；未設定前，排程呼叫會被拒絕（401），但手動備份按鈕不受影響。
 - **記憶體後援**：本機無 KV 時，快照存於 `globalThis.__sbBackupsMem`（同其餘 `*-kv.ts` 慣例），重啟即清空，方便安全地在本機測試還原流程而不動到正式 KV。
+
+### 5.8 PWA（加到主畫面）
+
+讓手機瀏覽器可將 `/admin` 後台「加到主畫面」，以接近原生 App 的獨立視窗開啟：
+
+- **`app/manifest.ts`**：Next.js 特殊檔案慣例，自動產生 `/manifest.webmanifest` 並在 `<head>` 插入對應 `<link>`（無需手動掛載）。`start_url: "/admin"`、`display: "standalone"`、`theme_color`/`background_color` 對齊品牌識別。
+- **圖示（`lib/pwa-icon.tsx` 共用視覺）**：品牌藍色漸層背景 + 白色 `{ }` 括號標記（呼應 `components/BrandDecor.tsx` 的 `CodeBraces`），以 **`next/og` 的 `ImageResponse`** 動態產生 PNG，不需另外準備圖檔。
+  - `app/icon.tsx` 用 `generateImageMetadata()` 一次產生 192／512 兩種尺寸（manifest 的最小需求），Next.js 自動路由至 `/icon/192`、`/icon/512` 並插入對應 `<link rel="icon">`。
+  - `app/apple-icon.tsx` 產生 180×180 給 iOS 讀取（`<link rel="apple-touch-icon">`）。
+  - `app/layout.tsx` 的 `metadata.appleWebApp = { capable: true, ... }` 讓 iOS 加到主畫面後**無 Safari 網址列**（全螢幕獨立視窗）；`viewport.themeColor` 統一分頁/工具列顏色。
+- **刻意不加 Service Worker**：本系統所有讀取都經 `noStore()` 強制拿最新資料（見 §5.4），若加上離線快取，Service Worker 攔截 API 請求時很容易讓後台顯示過期的報價/案件/收付款資料——「離線可用」對這個內部工具的價值遠低於「資料一定是最新的」，故只做「加到主畫面＋獨立視窗」，不做任何離線快取。
 
 ---
 
