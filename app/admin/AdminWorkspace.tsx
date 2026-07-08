@@ -33,11 +33,11 @@ type Tab =
   | "expenses";
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
+  { key: "todo", icon: "✅", label: "待辦清單" },
   { key: "quote", icon: "💰", label: "報價系統" },
   { key: "cases", icon: "💼", label: "案件管理" },
   { key: "expenses", icon: "💳", label: "支出紀錄" },
   { key: "inspiration", icon: "📝", label: "寫作靈感" },
-  { key: "todo", icon: "✅", label: "待辦清單" },
   { key: "knowledge", icon: "📚", label: "知識庫" },
   { key: "contacts", icon: "🤝", label: "人脈庫" },
 ];
@@ -72,7 +72,7 @@ export default function AdminWorkspace({
   initialExpenses: Expense[];
   protectedMode: boolean;
 }) {
-  const [tab, setTab] = useState<Tab>("quote");
+  const [tab, setTab] = useState<Tab>("todo");
   // 全域搜尋：即打即過濾當前頁籤的資料（寫作靈感 / 知識庫 / 案件 / 人脈）
   const [search, setSearch] = useState("");
   const searchable = Boolean(SEARCH_PLACEHOLDER[tab]);
