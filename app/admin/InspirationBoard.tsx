@@ -108,10 +108,14 @@ export default function InspirationBoard({
   useSyncOnFocus(async () => {
     if (editing || isBusy()) return;
     if (Date.now() - lastMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
     try {
       const res = await fetch("/api/inspirations");
       if (!res.ok) return;
       const { board: fresh } = (await res.json()) as { board: BoardData };
+      // fetch 進行期間若又發生本地變更（例如剛新增卡片），這份回應已經是
+      // 過期快照，不能覆蓋，否則會把剛新增的內容蓋掉
+      if (lastMutationAt.current >= requestedAt) return;
       setBoard((cur) =>
         JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
       );

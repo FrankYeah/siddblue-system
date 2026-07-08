@@ -231,10 +231,14 @@ export default function TodoBoard({
   useSyncOnFocus(async () => {
     if (editing || editingReminderId || isBusy()) return;
     if (Date.now() - lastMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
     try {
       const res = await fetch("/api/todos");
       if (!res.ok) return;
       const { board: fresh } = (await res.json()) as { board: BoardData };
+      // fetch 進行期間若又發生本地變更（例如剛新增任務），這份回應已經是
+      // 過期快照，不能覆蓋，否則會把剛新增的項目蓋掉
+      if (lastMutationAt.current >= requestedAt) return;
       setBoard((cur) =>
         JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
       );
@@ -248,7 +252,8 @@ export default function TodoBoard({
     const title = drafts[bucket].trim();
     if (!title) return;
     const todo: Todo = { id: newId(), title };
-    const next: BoardData = { ...board, [bucket]: [...board[bucket], todo] };
+    // 新項目放最前面，符合「剛加的先看到」的習慣
+    const next: BoardData = { ...board, [bucket]: [todo, ...board[bucket]] };
     setDrafts((d) => ({ ...d, [bucket]: "" }));
     persist(next);
   }
