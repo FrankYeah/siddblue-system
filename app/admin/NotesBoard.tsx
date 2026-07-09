@@ -101,6 +101,7 @@ export default function NotesBoard({
     "folders",
   );
   const [tagInput, setTagInput] = useState("");
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState(false);
@@ -176,6 +177,15 @@ export default function NotesBoard({
     () => notes.filter((n) => n.tags.length === 0).length,
     [notes],
   );
+
+  // 標籤下拉選單：從所有筆記已用過的標籤挑選，排除目前筆記已加的，並隨輸入文字即時篩選
+  const tagSuggestions = useMemo(() => {
+    const q = tagInput.trim().toLowerCase();
+    return sortedTags
+      .map(([t]) => t)
+      .filter((t) => !draft.tags.includes(t))
+      .filter((t) => !q || t.toLowerCase().includes(q));
+  }, [sortedTags, draft.tags, tagInput]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -369,6 +379,14 @@ export default function NotesBoard({
     const t = tagInput.trim();
     if (!t) return;
     setTagInput("");
+    if (draft.tags.includes(t)) return;
+    setDraft((d) => ({ ...d, tags: [...d.tags, t] }));
+  }
+
+  /** 從下拉選單挑選既有標籤，避免手動輸入打錯字造成同義但不同字的標籤 */
+  function selectExistingTag(t: string) {
+    setTagInput("");
+    setTagMenuOpen(false);
     if (draft.tags.includes(t)) return;
     setDraft((d) => ({ ...d, tags: [...d.tags, t] }));
   }
@@ -845,19 +863,67 @@ export default function NotesBoard({
                       </button>
                     </span>
                   ))}
-                  <input
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addTag();
-                      }
-                    }}
-                    onBlur={addTag}
-                    className="min-w-[140px] flex-1 rounded-md border border-paper-border px-2 py-1 text-sm outline-none transition focus:border-brand-500"
-                    placeholder="輸入標籤後按 Enter"
-                  />
+                  <div className="relative min-w-[140px] flex-1">
+                    <div className="flex items-center rounded-md border border-paper-border pr-1 transition focus-within:border-brand-500">
+                      <input
+                        value={tagInput}
+                        onChange={(e) => {
+                          setTagInput(e.target.value);
+                          setTagMenuOpen(true);
+                        }}
+                        onFocus={() => setTagMenuOpen(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addTag();
+                            setTagMenuOpen(false);
+                          }
+                          if (e.key === "Escape") setTagMenuOpen(false);
+                        }}
+                        onBlur={() => {
+                          addTag();
+                          setTagMenuOpen(false);
+                        }}
+                        className="min-w-0 flex-1 rounded-md px-2 py-1 text-sm outline-none"
+                        placeholder="輸入或選擇標籤"
+                      />
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setTagMenuOpen((v) => !v)}
+                        className="shrink-0 rounded p-0.5 text-paper-muted transition hover:text-brand-600"
+                        title="選擇既有標籤"
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                    </div>
+                    {tagMenuOpen && (
+                      <ul
+                        onMouseDown={(e) => e.preventDefault()}
+                        className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full min-w-[160px] overflow-y-auto rounded-lg border border-paper-border bg-white py-1 shadow-float"
+                      >
+                        {tagSuggestions.length > 0 ? (
+                          tagSuggestions.map((t) => (
+                            <li key={t}>
+                              <button
+                                type="button"
+                                onClick={() => selectExistingTag(t)}
+                                className="flex w-full items-center px-3 py-1.5 text-left text-sm text-paper-text transition hover:bg-paper-block"
+                              >
+                                # {t}
+                              </button>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="px-3 py-1.5 text-sm text-paper-muted">
+                            {tagInput.trim()
+                              ? "沒有符合的標籤，按 Enter 新增"
+                              : "沒有其他標籤"}
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </div>
 
