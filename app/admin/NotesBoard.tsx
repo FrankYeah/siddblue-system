@@ -20,6 +20,7 @@ import {
   ChevronUp,
   ChevronDown,
   Link as LinkIcon,
+  Folder,
 } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { renderMarkdown } from "@/lib/markdown";
@@ -95,6 +96,10 @@ export default function NotesBoard({
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [query, setQuery] = useState("");
   const [tagFilter, setTagFilter] = useState<TagFilter>({ kind: "all" });
+  // 手機版三欄側欄導覽（資料夾 → 筆記列表 → 內容），桌機版三欄同時顯示、不受此狀態影響
+  const [mobileStep, setMobileStep] = useState<"folders" | "list" | "editor">(
+    "folders",
+  );
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -210,6 +215,13 @@ export default function NotesBoard({
       steps: cloneSteps(n.steps),
     });
     setTagInput("");
+    setMobileStep("editor");
+  }
+
+  /** 側欄選擇資料夾（標籤）：套用篩選並在手機版切到筆記列表 */
+  function chooseFolder(f: TagFilter) {
+    setTagFilter(f);
+    setMobileStep("list");
   }
 
   async function newNote() {
@@ -392,9 +404,86 @@ export default function NotesBoard({
         )}
       </div>
 
-      <div className="md:grid md:grid-cols-[300px_minmax(0,1fr)] md:gap-5">
-        {/* ───────── 左側：筆記列表 ───────── */}
-        <aside className={selectedId ? "hidden md:block" : "block"}>
+      <div className="md:grid md:grid-cols-[168px_264px_minmax(0,1fr)] md:gap-5">
+        {/* ───────── 左側：資料夾側欄（標籤即虛擬資料夾，仿 macOS 備忘錄）─────────
+            依使用次數排序，量變多時常用分類永遠在最前面；「未加標籤」避免漏標的筆記被淹沒找不到。 */}
+        <aside className={mobileStep === "folders" ? "block" : "hidden md:block"}>
+          <div className="space-y-0.5">
+            <button
+              onClick={() => chooseFolder({ kind: "all" })}
+              className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                tagFilter.kind === "all"
+                  ? "bg-brand-50 font-medium text-brand-700"
+                  : "text-paper-text hover:bg-paper-block/60"
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <FileText size={15} className="shrink-0 text-paper-muted" />
+                <span className="truncate">全部筆記</span>
+              </span>
+              <span className="shrink-0 text-xs text-paper-muted">
+                {notes.length}
+              </span>
+            </button>
+            {sortedTags.map(([tag, count]) => {
+              const active = tagFilter.kind === "tag" && tagFilter.tag === tag;
+              return (
+                <button
+                  key={tag}
+                  onClick={() =>
+                    chooseFolder(active ? { kind: "all" } : { kind: "tag", tag })
+                  }
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                    active
+                      ? "bg-brand-50 font-medium text-brand-700"
+                      : "text-paper-text hover:bg-paper-block/60"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Folder size={15} className="shrink-0 text-paper-muted" />
+                    <span className="truncate">{tag}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-paper-muted">
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+            {untaggedCount > 0 && (
+              <button
+                onClick={() =>
+                  chooseFolder(
+                    tagFilter.kind === "untagged"
+                      ? { kind: "all" }
+                      : { kind: "untagged" },
+                  )
+                }
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                  tagFilter.kind === "untagged"
+                    ? "bg-brand-50 font-medium text-brand-700"
+                    : "text-paper-text hover:bg-paper-block/60"
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Folder size={15} className="shrink-0 text-paper-muted" />
+                  <span className="truncate">未加標籤</span>
+                </span>
+                <span className="shrink-0 text-xs text-paper-muted">
+                  {untaggedCount}
+                </span>
+              </button>
+            )}
+          </div>
+        </aside>
+
+        {/* ───────── 中間：筆記列表 ───────── */}
+        <aside className={mobileStep === "list" ? "block" : "hidden md:block"}>
+          <button
+            onClick={() => setMobileStep("folders")}
+            className="mb-3 inline-flex items-center gap-1 text-sm text-paper-muted md:hidden"
+          >
+            <ArrowLeft size={16} /> 資料夾
+          </button>
           <div className="mb-3 flex gap-2">
             <div className="relative flex-1">
               <Search
@@ -416,60 +505,6 @@ export default function NotesBoard({
               <Plus size={18} />
             </button>
           </div>
-
-          {/* 標籤瀏覽器（仿 iPhone 備忘錄）：標籤即虛擬分類，依使用次數排序 + 顯示筆記數，
-              量變多時常用分類永遠在最前面，「未加標籤」避免漏標的筆記被淹沒找不到。 */}
-          {notes.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              <button
-                onClick={() => setTagFilter({ kind: "all" })}
-                className={`rounded-full px-2.5 py-0.5 text-xs transition ${
-                  tagFilter.kind === "all"
-                    ? "bg-brand-600 text-white"
-                    : "bg-paper-block text-paper-muted hover:bg-paper-border"
-                }`}
-              >
-                全部筆記 <span className="opacity-70">{notes.length}</span>
-              </button>
-              {sortedTags.map(([tag, count]) => {
-                const active = tagFilter.kind === "tag" && tagFilter.tag === tag;
-                return (
-                  <button
-                    key={tag}
-                    onClick={() =>
-                      setTagFilter(active ? { kind: "all" } : { kind: "tag", tag })
-                    }
-                    className={`rounded-full px-2.5 py-0.5 text-xs transition ${
-                      active
-                        ? "bg-brand-600 text-white"
-                        : "bg-paper-block text-paper-muted hover:bg-paper-border"
-                    }`}
-                  >
-                    # {tag} <span className="opacity-70">{count}</span>
-                  </button>
-                );
-              })}
-              {untaggedCount > 0 && (
-                <button
-                  onClick={() =>
-                    setTagFilter(
-                      tagFilter.kind === "untagged"
-                        ? { kind: "all" }
-                        : { kind: "untagged" },
-                    )
-                  }
-                  className={`rounded-full px-2.5 py-0.5 text-xs transition ${
-                    tagFilter.kind === "untagged"
-                      ? "bg-brand-600 text-white"
-                      : "bg-paper-block text-paper-muted hover:bg-paper-border"
-                  }`}
-                >
-                  未加標籤{" "}
-                  <span className="opacity-70">{untaggedCount}</span>
-                </button>
-              )}
-            </div>
-          )}
 
           <ul className="space-y-2">
             {filtered.length === 0 && (
@@ -530,11 +565,14 @@ export default function NotesBoard({
         </aside>
 
         {/* ───────── 右側：編輯區 ───────── */}
-        <section className={selectedId ? "block" : "hidden md:block"}>
+        <section className={mobileStep === "editor" ? "block" : "hidden md:block"}>
           {selected ? (
             <div className="rounded-xl border border-paper-border bg-white p-4 sm:p-5">
               <button
-                onClick={() => setSelectedId(null)}
+                onClick={() => {
+                  setSelectedId(null);
+                  setMobileStep("list");
+                }}
                 className="mb-3 inline-flex items-center gap-1 text-sm text-paper-muted md:hidden"
               >
                 <ArrowLeft size={16} /> 返回列表

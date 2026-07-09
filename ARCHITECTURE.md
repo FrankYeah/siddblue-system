@@ -58,7 +58,7 @@ siddblue-system/
 │   │   ├── AdminEditor.tsx       # 💰 報價單編輯器（含狀態切換、營業稅切換）
 │   │   ├── InspirationBoard.tsx  # 📝 靈感看板（@hello-pangea/dnd 拖曳；✨ 矩陣生成按鈕）
 │   │   ├── TodoBoard.tsx         # ✅ 待辦清單
-│   │   ├── NotesBoard.tsx        # 📚 知識庫（左列表 + 右編輯；手機單欄切換）
+│   │   ├── NotesBoard.tsx        # 📚 知識庫（三欄：資料夾側欄 + 筆記列表 + 編輯區；手機三步驟切換）
 │   │   ├── CasesBoard.tsx        # 💼 案件管理（催款提醒 + 應收/應付 + 稅務 → 淨利）
 │   │   ├── ContactsBoard.tsx     # 🤝 人脈庫（Notion 風格資料表：dnd 排序 + Modal 編輯 + 逐列插入 + 篩選 + CSV 匯入）
 │   │   ├── ExpensesBoard.tsx     # 💳 支出紀錄（Burn Rate 統計卡 + Notion 風格資料表 + Modal 編輯）
@@ -338,7 +338,8 @@ interface Note {
 - **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。圖片語法 `![替代文字](網址)` 需優先於一般連結比對（否則開頭的 `!` 會被忽略、誤判成連結），網址一樣經 `sanitizeUrl()` 白名單，輸出 `<img loading="lazy">`。
 - **圖片上傳（Vercel Blob）**：`NotesBoard` 內容編輯區可點擊「上傳圖片」、或直接貼上／拖曳圖片到 textarea，經 `POST /api/notes/upload`（`multipart/form-data`，限 PNG/JPEG/GIF/WebP、單檔 8MB）呼叫 `@vercel/blob` 的 `put()` 上傳並取得公開網址，前端自動組成 `![檔名](網址)` 插入游標位置。**未設定 `BLOB_READ_WRITE_TOKEN` 時回 501 並顯示明確錯誤訊息**，不影響其餘功能（同 `OPENAI_API_KEY`/`CRON_SECRET` 的優雅降級慣例）；設定方式見 §6 環境變數與 `.env.local.example`。上傳的圖片以 Markdown 純文字形式存在 `content` 裡，因此自動納入既有的備份/匯出（`lib/backup.ts`）與對外分享頁渲染，無需額外處理。
 - 讀取時經 `migrateNote()` 清理/補齊（缺 `shareToken`/`type` 補預設、標籤去重、超長截斷）。
-- **標籤瀏覽器（`NotesBoard` 左側，仿 iPhone 備忘錄）**：標籤即虛擬分類，依使用次數排序（同次數依 zh-Hant 字母序）、每個標籤旁顯示筆記數；固定附「全部筆記」（重置）與「未加標籤」（`tags.length === 0`）兩個虛擬分類，避免筆記量變多後漏標的筆記被淹沒找不到。篩選狀態以 `TagFilter`（`{kind:"all"|"untagged"|"tag"}` 判別式）表示，而非拿字串當哨兵值，避免真實標籤剛好撞名；與列表內搜尋、全域搜尋框皆為 AND 疊加。
+- **三欄側欄式版面（`NotesBoard`，仿 macOS 備忘錄 / 桌面筆記軟體）**：桌機為 `資料夾側欄（168px）→ 筆記列表（264px）→ 編輯區（其餘寬度）` 三欄同時顯示（`md:grid-cols-[168px_264px_minmax(0,1fr)]`）；手機版收合為單欄，以 `mobileStep`（`"folders" | "list" | "editor"`）狀態切換，各欄僅在對應步驟顯示（`hidden md:block` 疊加條件式 class），並各自附「← 資料夾」「← 返回列表」返回鍵逐步倒退，不會跳兩層。
+- **資料夾側欄＝標籤瀏覽器（仿 iPhone 備忘錄）**：標籤即虛擬資料夾，依使用次數排序（同次數依 zh-Hant 字母序）、每列右側顯示筆記數；固定附「全部筆記」（重置）與「未加標籤」（`tags.length === 0`）兩個虛擬分類，避免筆記量變多後漏標的筆記被淹沒找不到。點選資料夾（`chooseFolder()`）套用篩選並在手機版前進到列表步驟。篩選狀態以 `TagFilter`（`{kind:"all"|"untagged"|"tag"}` 判別式）表示，而非拿字串當哨兵值，避免真實標籤剛好撞名；與列表內搜尋、全域搜尋框皆為 AND 疊加。
 
 ### 3.5 Case（案件與財務管理）
 
