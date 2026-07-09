@@ -341,6 +341,7 @@ interface Note {
 - **三欄側欄式版面（`NotesBoard`，仿 macOS 備忘錄 / 桌面筆記軟體）**：桌機為 `資料夾側欄（168px）→ 筆記列表（264px）→ 編輯區（其餘寬度）` 三欄同時顯示（`md:grid-cols-[168px_264px_minmax(0,1fr)]`）；手機版收合為單欄，以 `mobileStep`（`"folders" | "list" | "editor"`）狀態切換，各欄僅在對應步驟顯示（`hidden md:block` 疊加條件式 class），並各自附「← 資料夾」「← 返回列表」返回鍵逐步倒退，不會跳兩層。
 - **資料夾側欄＝標籤瀏覽器（仿 iPhone 備忘錄）**：標籤即虛擬資料夾，依使用次數排序（同次數依 zh-Hant 字母序）、每列右側顯示筆記數；固定附「全部筆記」（重置）與「未加標籤」（`tags.length === 0`）兩個虛擬分類，避免筆記量變多後漏標的筆記被淹沒找不到。點選資料夾（`chooseFolder()`）套用篩選並在手機版前進到列表步驟。篩選狀態以 `TagFilter`（`{kind:"all"|"untagged"|"tag"}` 判別式）表示，而非拿字串當哨兵值，避免真實標籤剛好撞名；與列表內搜尋、全域搜尋框皆為 AND 疊加。
 - **編輯區的標籤輸入為下拉式 combobox**：`tagSuggestions`（`useMemo`）取全站已用過的標籤（來源同 `sortedTags`）、排除當前筆記已加的，並隨 `tagInput` 即時篩選；輸入框旁的 chevron 按鈕與 focus/輸入皆會開啟選單，點選項目即呼叫 `selectExistingTag()` 加入並關閉選單，避免手動輸入同義但打錯字的標籤（如「報稅」vs「報税」各自成一個標籤）。仍保留自由輸入＋Enter 新增全新標籤的原有行為（`addTag()`）；選單容器用 `onMouseDown` 阻止預設行為以避免點選項目時 input 先觸發 `onBlur` 把選單關掉。
+- **資料夾側欄可整批重新命名標籤**：每個標籤列 hover 有鉛筆按鈕（`startRenameTag()`），點下後該列原地換成輸入框（非巢狀 `<button>`，改用 `<div>` 包住兩個並列 `<button>` 避免 HTML button-in-button 的解析問題），Enter/blur 呼叫 `commitRenameTag()` → `POST /api/notes/tags/rename`（`lib/notes-kv.ts` 的 `renameTag()`）套用到所有含此標籤的筆記，同名合併去重；刻意不更新 `updatedAt`，因為這是後設資料修正而非內容編輯，不該讓筆記在「依更新時間排序」的列表裡跳到最上面。前端拿到後端回傳「有異動的筆記」後：① 就地合併進 `notes` state（不必整頁重抓）；② 若目前正編輯的筆記剛好被改到，同步更新 `draft.tags`，否則按下「儲存」會把新標籤覆寫回舊名字；③ 若目前篩選中的標籤剛好被改名，`tagFilter` 也跟著換新名字，避免畫面突然跳回「全部筆記」。
 
 ### 3.5 Case（案件與財務管理）
 
@@ -500,6 +501,7 @@ type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
 | `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
 | `DELETE /api/notes/[id]` | 刪除筆記（同時移出 index 與 share 對應） | 需登入 | `deleteNote()` |
 | `POST /api/notes/upload` | 🖼️ 上傳圖片至 Vercel Blob，`multipart/form-data` 欄位 `file`（限 PNG/JPEG/GIF/WebP、≤8MB）→ `{ url }`。未設 `BLOB_READ_WRITE_TOKEN` 回 501 | 需登入 | `put()`（`@vercel/blob`） |
+| `POST /api/notes/tags/rename` | 全站重新命名標籤（body `{from, to}`），套用到所有含此標籤的筆記，回傳有異動的筆記 | 需登入 | `renameTag()` |
 | `GET /api/cases` | 列出所有案件（完整內容，新→舊） | 需登入 | `getAllCases()` |
 | `POST /api/cases` | 建立新案件 | 需登入 | `createCase()` |
 | `GET /api/cases/[id]` | 讀取單筆案件 | 需登入 | `getCase()` |

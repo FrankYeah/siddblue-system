@@ -102,6 +102,8 @@ export default function NotesBoard({
   );
   const [tagInput, setTagInput] = useState("");
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [renamingTag, setRenamingTag] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState(false);
@@ -232,6 +234,45 @@ export default function NotesBoard({
   function chooseFolder(f: TagFilter) {
     setTagFilter(f);
     setMobileStep("list");
+  }
+
+  function startRenameTag(tag: string) {
+    setRenamingTag(tag);
+    setRenameValue(tag);
+  }
+
+  /** 全站重新命名標籤：套用到所有含此標籤的筆記，並同步目前的篩選條件與編輯中的 draft */
+  async function commitRenameTag() {
+    const from = renamingTag;
+    const to = renameValue.trim();
+    setRenamingTag(null);
+    if (!from || !to || to === from) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/notes/tags/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to }),
+      });
+      if (!res.ok) throw new Error();
+      const { notes: changed } = (await res.json()) as { notes: Note[] };
+      const changedMap = new Map(changed.map((n) => [n.id, n]));
+      setNotes((ns) => ns.map((n) => changedMap.get(n.id) ?? n));
+      // 正在編輯的筆記若剛好被改到，draft 也要同步，避免之後儲存時把新標籤覆寫回舊的
+      if (selectedId && changedMap.has(selectedId)) {
+        const n = changedMap.get(selectedId)!;
+        setDraft((d) => ({ ...d, tags: [...n.tags] }));
+      }
+      // 若正在篩選這個標籤，篩選條件也要跟著換成新名字，避免畫面突然變回「全部筆記」
+      if (tagFilter.kind === "tag" && tagFilter.tag === from) {
+        setTagFilter({ kind: "tag", tag: to });
+      }
+      flash(`已將標籤「${from}」重新命名為「${to}」`);
+    } catch {
+      flash("重新命名失敗，請稍後再試");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function newNote() {
@@ -445,26 +486,63 @@ export default function NotesBoard({
             </button>
             {sortedTags.map(([tag, count]) => {
               const active = tagFilter.kind === "tag" && tagFilter.tag === tag;
+              if (renamingTag === tag) {
+                return (
+                  <div
+                    key={tag}
+                    className="flex items-center gap-2 rounded-lg border border-brand-300 bg-white px-2.5 py-1.5"
+                  >
+                    <Folder size={15} className="shrink-0 text-paper-muted" />
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRenameTag();
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setRenamingTag(null);
+                        }
+                      }}
+                      onBlur={commitRenameTag}
+                      className="min-w-0 flex-1 rounded border border-paper-border px-1.5 py-0.5 text-sm outline-none focus:border-brand-500"
+                    />
+                  </div>
+                );
+              }
               return (
-                <button
+                <div
                   key={tag}
-                  onClick={() =>
-                    chooseFolder(active ? { kind: "all" } : { kind: "tag", tag })
-                  }
-                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
-                    active
-                      ? "bg-brand-50 font-medium text-brand-700"
-                      : "text-paper-text hover:bg-paper-block/60"
+                  className={`flex items-center rounded-lg transition ${
+                    active ? "bg-brand-50" : "hover:bg-paper-block/60"
                   }`}
                 >
-                  <span className="flex min-w-0 items-center gap-2">
+                  <button
+                    onClick={() =>
+                      chooseFolder(active ? { kind: "all" } : { kind: "tag", tag })
+                    }
+                    className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm ${
+                      active ? "font-medium text-brand-700" : "text-paper-text"
+                    }`}
+                  >
                     <Folder size={15} className="shrink-0 text-paper-muted" />
                     <span className="truncate">{tag}</span>
-                  </span>
-                  <span className="shrink-0 text-xs text-paper-muted">
+                  </button>
+                  <button
+                    onClick={() => startRenameTag(tag)}
+                    className="shrink-0 rounded p-1 text-paper-muted/70 transition hover:text-brand-600"
+                    title="重新命名標籤"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <span className="shrink-0 pr-3 text-xs text-paper-muted">
                     {count}
                   </span>
-                </button>
+                </div>
               );
             })}
             {untaggedCount > 0 && (

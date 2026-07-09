@@ -219,6 +219,41 @@ export async function getAllNotes(): Promise<Note[]> {
 }
 
 /**
+ * 全站重新命名標籤 (資料夾側欄「編輯標籤文字」使用)：套用到所有含此標籤的筆記，
+ * 若該筆記同時已有新名字則自動去重合併。刻意不更新 updatedAt/索引分數——
+ * 這是後設資料修正而非內容編輯，不應讓筆記在「依更新時間排序」的列表裡跳到最上面。
+ * 回傳有異動的筆記 (供前端就地合併 state，不必整頁重抓)。
+ */
+export async function renameTag(oldTag: string, newTag: string): Promise<Note[]> {
+  const from = String(oldTag ?? "").trim();
+  const to = String(newTag ?? "").trim().slice(0, 40);
+  if (!from || !to || from === to) return [];
+
+  const notes = await getAllNotes();
+  const changed: Note[] = [];
+  for (const n of notes) {
+    if (!n.tags.includes(from)) continue;
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const t of n.tags) {
+      const next = t === from ? to : t;
+      if (!seen.has(next)) {
+        seen.add(next);
+        tags.push(next);
+      }
+    }
+    const updated: Note = { ...n, tags };
+    if (KV_ENABLED) {
+      await kv.set(NOTE_KEY(n.id), updated);
+    } else {
+      memStore.set(n.id, updated);
+    }
+    changed.push(updated);
+  }
+  return changed;
+}
+
+/**
  * 完整覆寫筆記資料 (備份還原用)：清空現有全部 (含分享 token 對應)，寫入 snapshot 內容。
  * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
  */
