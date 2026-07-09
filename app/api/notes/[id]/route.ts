@@ -32,6 +32,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       content: input?.content ?? "",
       tags: input?.tags ?? [],
       type: input?.type ?? "general",
+      steps: input?.steps ?? [],
       isShared: input?.isShared ?? false,
     });
     if (!note) {

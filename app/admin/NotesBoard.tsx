@@ -17,9 +17,13 @@ import {
   ExternalLink,
   X,
   ImagePlus,
+  ChevronUp,
+  ChevronDown,
+  Link as LinkIcon,
 } from "lucide-react";
+import TextareaAutosize from "react-textarea-autosize";
 import { renderMarkdown } from "@/lib/markdown";
-import type { Note, NoteType } from "@/lib/types";
+import type { Note, NoteType, ProcessStep } from "@/lib/types";
 
 // 「載入諮詢模板」填入的 Markdown 結構
 const CONSULTING_TEMPLATE = `## 諮詢提問
@@ -40,6 +44,7 @@ type Draft = {
   tags: string[];
   type: NoteType;
   isShared: boolean;
+  steps: ProcessStep[];
 };
 
 /**
@@ -57,7 +62,13 @@ const EMPTY_DRAFT: Draft = {
   tags: [],
   type: "general",
   isShared: false,
+  steps: [],
 };
+
+/** 深拷貝流程步驟，避免編輯時意外改到 notes 陣列裡的原始物件 */
+function cloneSteps(steps: ProcessStep[]): ProcessStep[] {
+  return steps.map((s) => ({ ...s, links: s.links.map((l) => ({ ...l })) }));
+}
 
 function fmt(iso: string) {
   const d = new Date(iso);
@@ -184,7 +195,8 @@ export default function NotesBoard({
       draft.content !== selected.content ||
       draft.type !== selected.type ||
       draft.isShared !== selected.isShared ||
-      draft.tags.join("") !== selected.tags.join("")
+      draft.tags.join("") !== selected.tags.join("") ||
+      JSON.stringify(draft.steps) !== JSON.stringify(selected.steps)
     : false;
 
   function selectNote(n: Note) {
@@ -195,6 +207,7 @@ export default function NotesBoard({
       tags: [...n.tags],
       type: n.type,
       isShared: n.isShared,
+      steps: cloneSteps(n.steps),
     });
     setTagInput("");
   }
@@ -238,6 +251,7 @@ export default function NotesBoard({
         tags: [...note.tags],
         type: note.type,
         isShared: note.isShared,
+        steps: cloneSteps(note.steps),
       });
       flash("已儲存");
     } catch {
@@ -275,6 +289,68 @@ export default function NotesBoard({
       return;
     }
     setDraft((d) => ({ ...d, content: CONSULTING_TEMPLATE, type: "consulting" }));
+  }
+
+  // ── 流程步驟 (ProcessStep[])：type === "process" 的知識用逐步驟記錄，
+  //    如報稅步驟、諮詢提問流程、網站架設說明，同一組件仿報價單「流程說明」的操作方式 ──
+  function addStep() {
+    setDraft((d) => ({
+      ...d,
+      steps: [...d.steps, { title: "", description: "", links: [] }],
+    }));
+  }
+  function updateStep(i: number, key: "title" | "description", value: string) {
+    setDraft((d) => {
+      const steps = [...d.steps];
+      steps[i] = { ...steps[i], [key]: value };
+      return { ...d, steps };
+    });
+  }
+  function removeStep(i: number) {
+    setDraft((d) => ({ ...d, steps: d.steps.filter((_, idx) => idx !== i) }));
+  }
+  function moveStep(i: number, dir: -1 | 1) {
+    setDraft((d) => {
+      const j = i + dir;
+      if (j < 0 || j >= d.steps.length) return d;
+      const steps = [...d.steps];
+      [steps[i], steps[j]] = [steps[j], steps[i]];
+      return { ...d, steps };
+    });
+  }
+  function addStepLink(stepIdx: number) {
+    setDraft((d) => {
+      const steps = [...d.steps];
+      steps[stepIdx] = {
+        ...steps[stepIdx],
+        links: [...steps[stepIdx].links, { label: "", url: "" }],
+      };
+      return { ...d, steps };
+    });
+  }
+  function updateStepLink(
+    stepIdx: number,
+    linkIdx: number,
+    key: "label" | "url",
+    value: string,
+  ) {
+    setDraft((d) => {
+      const steps = [...d.steps];
+      const links = [...steps[stepIdx].links];
+      links[linkIdx] = { ...links[linkIdx], [key]: value };
+      steps[stepIdx] = { ...steps[stepIdx], links };
+      return { ...d, steps };
+    });
+  }
+  function removeStepLink(stepIdx: number, linkIdx: number) {
+    setDraft((d) => {
+      const steps = [...d.steps];
+      steps[stepIdx] = {
+        ...steps[stepIdx],
+        links: steps[stepIdx].links.filter((_, idx) => idx !== linkIdx),
+      };
+      return { ...d, steps };
+    });
   }
 
   function addTag() {
@@ -475,25 +551,147 @@ export default function NotesBoard({
 
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <div className="inline-flex rounded-lg border border-paper-border p-0.5">
-                  {(["general", "consulting"] as NoteType[]).map((tp) => (
-                    <button
-                      key={tp}
-                      onClick={() => setDraft((d) => ({ ...d, type: tp }))}
-                      className={`rounded-md px-3 py-1 text-sm transition ${
-                        draft.type === tp
-                          ? "bg-brand-600 text-white"
-                          : "text-paper-muted hover:text-paper-text"
-                      }`}
-                    >
-                      {tp === "consulting" ? "諮詢紀錄" : "一般筆記"}
-                    </button>
-                  ))}
+                  {(["general", "consulting", "process"] as NoteType[]).map(
+                    (tp) => (
+                      <button
+                        key={tp}
+                        onClick={() => setDraft((d) => ({ ...d, type: tp }))}
+                        className={`rounded-md px-3 py-1 text-sm transition ${
+                          draft.type === tp
+                            ? "bg-brand-600 text-white"
+                            : "text-paper-muted hover:text-paper-text"
+                        }`}
+                      >
+                        {tp === "consulting"
+                          ? "諮詢紀錄"
+                          : tp === "process"
+                            ? "流程知識"
+                            : "一般筆記"}
+                      </button>
+                    ),
+                  )}
                 </div>
-                <button onClick={loadTemplate} className="btn-ghost text-sm">
-                  <FileText size={15} /> 載入諮詢模板
-                </button>
+                {draft.type === "consulting" && (
+                  <button onClick={loadTemplate} className="btn-ghost text-sm">
+                    <FileText size={15} /> 載入諮詢模板
+                  </button>
+                )}
               </div>
 
+              {draft.type === "process" ? (
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-sm font-medium text-paper-muted">
+                      流程步驟
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {draft.steps.map((s, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg border border-paper-border bg-paper-block/40 p-3"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="mt-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-xs font-bold text-white">
+                            {i + 1}
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <input
+                              className="field-input font-medium"
+                              placeholder="步驟名稱（如：準備扣繳憑單）"
+                              value={s.title}
+                              onChange={(e) =>
+                                updateStep(i, "title", e.target.value)
+                              }
+                            />
+                            <TextareaAutosize
+                              minRows={3}
+                              className="field-input resize-none"
+                              placeholder="說明（可多行）"
+                              value={s.description}
+                              onChange={(e) =>
+                                updateStep(i, "description", e.target.value)
+                              }
+                            />
+                            {s.links.map((l, li) => (
+                              <div key={li} className="flex gap-2">
+                                <input
+                                  className="field-input sm:max-w-[190px]"
+                                  placeholder="連結文字（如：財政部網站）"
+                                  value={l.label}
+                                  onChange={(e) =>
+                                    updateStepLink(
+                                      i,
+                                      li,
+                                      "label",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                                <input
+                                  className="field-input"
+                                  placeholder="https://…（可事後再貼）"
+                                  value={l.url}
+                                  onChange={(e) =>
+                                    updateStepLink(i, li, "url", e.target.value)
+                                  }
+                                />
+                                <button
+                                  onClick={() => removeStepLink(i, li)}
+                                  className="btn-danger px-2"
+                                  title="刪除連結"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addStepLink(i)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
+                            >
+                              <LinkIcon size={13} /> 新增連結
+                            </button>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-center gap-0.5">
+                            <button
+                              onClick={() => moveStep(i, -1)}
+                              disabled={i === 0}
+                              className="rounded p-0.5 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                              title="上移"
+                            >
+                              <ChevronUp size={16} />
+                            </button>
+                            <button
+                              onClick={() => moveStep(i, 1)}
+                              disabled={i === draft.steps.length - 1}
+                              className="rounded p-0.5 text-paper-muted hover:text-brand-600 disabled:opacity-30"
+                              title="下移"
+                            >
+                              <ChevronDown size={16} />
+                            </button>
+                            <button
+                              onClick={() => removeStep(i)}
+                              className="rounded p-1 text-paper-muted hover:bg-red-50 hover:text-red-600"
+                              title="刪除步驟"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {draft.steps.length === 0 && (
+                      <p className="rounded-lg border border-dashed border-paper-border px-3 py-4 text-center text-sm text-paper-muted">
+                        尚無步驟，按下方「新增步驟」開始記錄。
+                      </p>
+                    )}
+                  </div>
+                  <button onClick={addStep} className="btn-ghost mt-2">
+                    <Plus size={16} /> 新增步驟
+                  </button>
+                </div>
+              ) : (
+                <>
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-paper-muted">
                   內容（支援 Markdown）
@@ -587,6 +785,8 @@ export default function NotesBoard({
                     }
                   }}
                 />
+              )}
+                </>
               )}
 
               <div className="mt-4">

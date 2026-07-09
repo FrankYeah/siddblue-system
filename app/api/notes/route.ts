@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       content: input?.content ?? "",
       tags: input?.tags ?? [],
       type: input?.type ?? "general",
+      steps: input?.steps ?? [],
       isShared: input?.isShared ?? false,
     });
     return NextResponse.json({ note }, { status: 201 });

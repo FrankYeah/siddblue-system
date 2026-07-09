@@ -1,7 +1,8 @@
 import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
 import { unstable_noStore as noStore } from "next/cache";
-import type { Note, NoteInput, NoteSummary, NoteType } from "./types";
+import type { Note, NoteInput, NoteSummary, NoteType, ProcessStep } from "./types";
+import { normalizeProcessSteps } from "./normalize";
 
 // ─────────────────────────────────────────────────────────────
 //  知識庫資料存取層 (Vercel KV)
@@ -32,7 +33,7 @@ const memStore: Map<string, Note> = ((
   globalThis as unknown as { __sbNotesMem?: Map<string, Note> }
 ).__sbNotesMem ??= new Map<string, Note>());
 
-const NOTE_TYPES: NoteType[] = ["general", "consulting"];
+const NOTE_TYPES: NoteType[] = ["general", "consulting", "process"];
 
 // ── 清理 / 補齊 (防止壞資料，並相容缺欄位的舊資料) ──
 function sanitizeTags(raw: unknown): string[] {
@@ -50,6 +51,20 @@ function sanitizeTags(raw: unknown): string[] {
   return out;
 }
 
+/** 流程步驟清理：重用報價單的 normalizeProcessSteps()，再加上長度上限避免壞資料 */
+function sanitizeSteps(raw: unknown): ProcessStep[] {
+  return normalizeProcessSteps(raw)
+    .slice(0, 50)
+    .map((s) => ({
+      title: s.title.slice(0, 200),
+      description: s.description.slice(0, 5000),
+      links: s.links.slice(0, 10).map((l) => ({
+        label: l.label.slice(0, 100),
+        url: l.url.slice(0, 500),
+      })),
+    }));
+}
+
 function migrateNote(raw: Note | null): Note | null {
   if (!raw) return null;
   const type: NoteType = NOTE_TYPES.includes(raw.type) ? raw.type : "general";
@@ -59,6 +74,7 @@ function migrateNote(raw: Note | null): Note | null {
     content: String(raw.content ?? "").slice(0, 100000),
     tags: sanitizeTags(raw.tags),
     type,
+    steps: sanitizeSteps(raw.steps),
     isShared: Boolean(raw.isShared),
     shareToken: String(raw.shareToken || nanoid(10)),
     createdAt: String(raw.createdAt || new Date().toISOString()),
@@ -73,6 +89,7 @@ function cleanInput(input: NoteInput): NoteInput {
     content: String(input?.content ?? "").slice(0, 100000),
     tags: sanitizeTags(input?.tags),
     type: NOTE_TYPES.includes(input?.type) ? input.type : "general",
+    steps: sanitizeSteps(input?.steps),
     isShared: Boolean(input?.isShared),
   };
 }

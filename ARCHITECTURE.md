@@ -137,7 +137,7 @@ siddblue-system/
 - **Client Components**（編輯器、看板、待辦、對外頁）以 `fetch` 呼叫 `/api/*` 進行寫入。
 - **樂觀更新 (Optimistic UI)**：靈感看板與待辦清單在本機先更新畫面，再 `PUT` 整個 board 回 KV，寫入後**不重新讀取**（故 Upstash 讀取複本延遲對使用者無影響）。
 - **防寫入亂序（`app/admin/hooks.ts` → `useQueuedSave`）**：整包覆寫 PUT 若併發送出，HTTP 回應順序不保證，舊請求可能最後落地、以舊蓋新。看板的 persist 一律經佇列：同時最多一個請求在途，期間的變更只保留最新酬載、完成後補送一次（序列化＋合併），連續快速拖曳也不會遺失資料。
-- **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。
+- **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。⚠️ 光是進入 callback 前檢查還不夠——若 focus 事件在 10 秒保護期剛過就觸發、`fetch` 進行期間使用者剛好又新增了一筆，這份回應送達時已經是過期快照，仍會不分青紅皂白蓋掉剛新增的項目（曾在 TodoBoard／InspirationBoard 實際重現：新增後畫面上內容憑空消失，但 KV 其實有存到）。因此兩處呼叫端都在 `fetch` **前**記錄 `requestedAt = Date.now()`，await 結束後若 `lastMutationAt.current >= requestedAt`（代表這段等待期間又有更新）就捨棄這份回應、不套用，而不是只在呼叫前檢查一次。
 - **後台頁籤**：`AdminWorkspace` 一次掛載七個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。手機底部導覽為 7 欄。
 - **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加），案件比對名稱＋備註＋夥伴，人脈比對姓名＋職業＋聯絡方式＋網址＋備註，支出比對項目名稱＋備註。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
 
@@ -307,21 +307,24 @@ interface TodoBoard extends Record<TodoBucket, Todo[]> {
 // emptyTodoBoard() 為底補上缺的分區為 []，同一慣例可持續擴充新分區
 ```
 
-- 四個簡易分區：極簡設計，刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）。
+- 四個簡易分區：極簡設計，刪除即從陣列移除並 `PUT` 整個 board，**不保留任何紀錄**（無軟刪除、無時間戳）；新增的項目插在陣列**最前面**（`[todo, ...board[bucket]]`），畫面上剛新增的永遠在最上方，不用捲到最下面找。
+- **版面（`TodoBoard.tsx` 的 `grid`）**：四個分區欄位改為**固定寬度（340px）+ 橫向捲動**（`flex overflow-x-auto`），取代原本會被螢幕寬度擠壓的 `grid-cols` 版面，換取任務內容更寬的顯示空間、減少不必要的換行；與 Cases/Contacts/Expenses 等資料表「手機橫向滾動」慣例一致，只是這裡桌機也套用。
 - **週期提醒（`reminders`）**：獨立的第五區塊，用於「每週關心學生工作進度」這類重複性提醒，與上方待辦的「做完就刪」邏輯不同——到期不會自動消失，需使用者自行確認後手動刪除。`TodoBoard.tsx` 的 `nextOccurrence()` 依 `frequency`/`when` 即時算出下次發生日期（不落地），用於畫面排序（最近到期排最前）與「今天／明天／N 天後／已過期」的顯示文字；`ReminderWhenInput` 依頻率切換不同輸入控制項（星期下拉／月份數字／MM-DD 日期／完整日期）。
 - 讀取時經 `sanitizeTodoBoard()` 清理（同上原則），`when` 值格式不符時退回合理預設，避免壞資料造成排序錯誤。
 
 ### 3.4 Note（知識庫筆記）
 
 ```ts
-type NoteType = "general" | "consulting";   // 一般筆記 / 諮詢紀錄
+type NoteType = "general" | "consulting" | "process";
+// 一般筆記 / 諮詢紀錄 / 流程化知識（報稅步驟、諮詢提問流程、網站架設說明…）
 
 interface Note {
   id: string;          // nanoid(10)
   title: string;       // 上限 300 字
-  content: string;     // Markdown，上限 100,000 字
+  content: string;     // Markdown，上限 100,000 字；type === "process" 時不使用
   tags: string[];      // 每個標籤上限 40 字、去重、至多 30 個
   type: NoteType;
+  steps: ProcessStep[]; // 流程步驟；僅 type === "process" 使用，重用報價單的 ProcessStep 結構 (§3.1)
   isShared: boolean;   // 是否對外公開
   shareToken: string;  // nanoid(10)，建立時產生、終生不變（分享連結用，避免以 id 被猜到）
   createdAt: string;   // ISO
@@ -330,6 +333,7 @@ interface Note {
 ```
 
 - 與報價單相同採**逐筆 CRUD + 索引**：`note:{id}` 存單筆、`notes:index`（Sorted Set）排序、`note:share:{token}` 供對外頁反查。
+- **流程化知識（`type === "process"`）**：知識庫的第三種筆記類型，用結構化的「步驟」取代自由 Markdown——每步驟有標題／可多行說明／可多個連結（重用報價單「流程說明」的 `ProcessStep`/`ProcessLink` 結構與 `lib/normalize.ts` 的 `normalizeProcessSteps()`，`lib/notes-kv.ts` 的 `sanitizeSteps()` 在其上再加長度上限）；`NotesBoard` 切到此類型時，原本的 Markdown 編輯區（含預覽切換、圖片上傳）整塊換成步驟編輯器（新增/刪除/上移/下移步驟，每步驟可加連結），UI 與互動邏輯直接仿照 `AdminEditor.tsx` 既有的流程步驟編輯器；`content` 欄位保留但此類型不使用。對外分享頁 (`/shared/note/[token]`) 依 `note.type` 分流渲染：`process` 顯示唯讀步驟列表（樣式同 `QuoteView` 的「交付流程」區塊），其餘類型才走 Markdown 渲染。
 - **對外分享**：`/shared/note/[token]` Server Component 以 `getNoteByShareToken()` 反查；找不到或 `isShared === false` 一律 `notFound()`（不洩漏是否存在）。內容經 `lib/markdown.ts` 轉為**白名單 HTML** 後唯讀呈現。
 - **Markdown 安全性**（`lib/markdown.ts`）：先逐行做區塊解析，內容一律先 `escapeHtml` 再套用行內語法；連結僅允許 `http(s):` / `mailto:` / 站內相對路徑，其餘（如 `javascript:`）降級為純文字，故可安全 `dangerouslySetInnerHTML`。`[文字](網址)` 與**裸網址**（http/https 自動連結化）以同一個 regex 單趟處理、皆帶 `target="_blank" rel="noopener noreferrer nofollow"`；靈感卡片預覽等純文字情境則用 `components/Linkify.tsx`。圖片語法 `![替代文字](網址)` 需優先於一般連結比對（否則開頭的 `!` 會被忽略、誤判成連結），網址一樣經 `sanitizeUrl()` 白名單，輸出 `<img loading="lazy">`。
 - **圖片上傳（Vercel Blob）**：`NotesBoard` 內容編輯區可點擊「上傳圖片」、或直接貼上／拖曳圖片到 textarea，經 `POST /api/notes/upload`（`multipart/form-data`，限 PNG/JPEG/GIF/WebP、單檔 8MB）呼叫 `@vercel/blob` 的 `put()` 上傳並取得公開網址，前端自動組成 `![檔名](網址)` 插入游標位置。**未設定 `BLOB_READ_WRITE_TOKEN` 時回 501 並顯示明確錯誤訊息**，不影響其餘功能（同 `OPENAI_API_KEY`/`CRON_SECRET` 的優雅降級慣例）；設定方式見 §6 環境變數與 `.env.local.example`。上傳的圖片以 Markdown 純文字形式存在 `content` 裡，因此自動納入既有的備份/匯出（`lib/backup.ts`）與對外分享頁渲染，無需額外處理。

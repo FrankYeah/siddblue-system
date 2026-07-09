@@ -193,7 +193,8 @@ export interface TodoBoard extends Record<TodoBucket, Todo[]> {
 /** 筆記類型 */
 export type NoteType =
   | "general" // 一般筆記
-  | "consulting"; // 諮詢紀錄
+  | "consulting" // 諮詢紀錄
+  | "process"; // 流程化知識 (報稅步驟、諮詢提問流程、網站架設說明…)
 
 /** 知識庫筆記 */
 export interface Note {
@@ -201,12 +202,14 @@ export interface Note {
   id: string;
   /** 標題 */
   title: string;
-  /** 內容 (支援 Markdown) */
+  /** 內容 (支援 Markdown)；type === "process" 時不使用，改用 steps */
   content: string;
   /** 標籤 (如「一次性諮詢」「創業想法」) */
   tags: string[];
-  /** 類型：一般筆記 / 諮詢紀錄 */
+  /** 類型：一般筆記 / 諮詢紀錄 / 流程化知識 */
   type: NoteType;
+  /** 流程步驟 (僅 type === "process" 使用，重用報價單的 ProcessStep 結構) */
+  steps: ProcessStep[];
   /** 是否對外公開共享 */
   isShared: boolean;
   /** 對外連結專屬 token (避免以 id 被猜到)，建立時產生、終生不變 */
@@ -234,6 +237,7 @@ export interface NoteInput {
   tags: string[];
   type: NoteType;
   isShared: boolean;
+  steps: ProcessStep[];
 }
 
 // ═════════════════════════════════════════════════════════════

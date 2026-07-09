@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { ExternalLink } from "lucide-react";
 import { getNoteByShareToken } from "@/lib/notes-kv";
 import { renderMarkdown } from "@/lib/markdown";
 import { COMPANY_NAME } from "@/lib/defaults";
@@ -25,9 +26,13 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const note = await getNoteByShareToken(params.token);
   if (!note || !note.isShared) return { title: "找不到內容" };
+  const description =
+    note.type === "process"
+      ? note.steps.map((s) => s.title).join("、").slice(0, 120)
+      : note.content.slice(0, 120);
   return {
     title: `${note.title || "分享筆記"} — ${COMPANY_NAME}`,
-    description: note.content.slice(0, 120),
+    description,
     robots: { index: false, follow: false },
   };
 }
@@ -42,7 +47,12 @@ export default async function SharedNotePage({
   if (!note || !note.isShared) notFound();
 
   const html = renderMarkdown(note.content);
-  const typeLabel = note.type === "consulting" ? "諮詢紀錄" : "筆記";
+  const typeLabel =
+    note.type === "consulting"
+      ? "諮詢紀錄"
+      : note.type === "process"
+        ? "流程知識"
+        : "筆記";
 
   return (
     <div className="min-h-screen bg-paper-bg pb-20">
@@ -82,7 +92,51 @@ export default async function SharedNotePage({
       {/* 內容卡片 (唯讀) */}
       <main className="mx-auto max-w-3xl px-6">
         <article className="-mt-6 rounded-2xl border border-paper-border bg-white p-6 shadow-card sm:p-8">
-          {html.trim() ? (
+          {note.type === "process" ? (
+            note.steps.length > 0 ? (
+              <ol className="space-y-4">
+                {note.steps.map((s, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-xs font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      {s.title && (
+                        <div className="font-medium text-paper-text">
+                          {s.title}
+                        </div>
+                      )}
+                      {s.description && (
+                        <p className="mt-0.5 whitespace-pre-line text-sm text-paper-muted">
+                          {s.description}
+                        </p>
+                      )}
+                      {s.links.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {s.links
+                            .filter((l) => l.url)
+                            .map((l, li) => (
+                              <a
+                                key={li}
+                                href={l.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
+                              >
+                                <ExternalLink size={12} />
+                                {l.label || "連結"}
+                              </a>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-paper-muted">此流程目前沒有步驟。</p>
+            )
+          ) : html.trim() ? (
             <div
               className="md-content"
               dangerouslySetInnerHTML={{ __html: html }}

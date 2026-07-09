@@ -365,11 +365,13 @@ export default function TodoBoard({
   }
 
   const grid = (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    // 固定寬度 + 橫向捲動：比照其餘看板的手機慣例，換取每欄更寬敞的文字空間，
+    // 避免任務內容在窄欄位裡太容易換行
+    <div className="flex gap-4 overflow-x-auto pb-2">
       {BUCKETS.map((b) => (
         <div
           key={b.key}
-          className={`rounded-xl border border-t-4 border-paper-border bg-white p-4 shadow-sm ${b.accent}`}
+          className={`w-[340px] shrink-0 rounded-xl border border-t-4 border-paper-border bg-white p-4 shadow-sm ${b.accent}`}
         >
           <h3 className="mb-3 text-base font-semibold text-paper-text">
             {b.title}
