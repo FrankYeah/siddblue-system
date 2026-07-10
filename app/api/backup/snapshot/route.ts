@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { snapshotBackup } from "@/lib/backup";
+import {
+  clearBackupError,
+  recordBackupError,
+  snapshotBackup,
+} from "@/lib/backup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// 全量匯出 + 寫入快照在資料量大時可能超過預設 10 秒上限
+export const maxDuration = 60;
 
 /**
  * Vercel Cron 只送 GET，且若專案設定了 CRON_SECRET 環境變數，
@@ -25,9 +31,14 @@ export async function GET(req: NextRequest) {
   }
   try {
     const meta = await snapshotBackup();
+    // 成功即清除失敗紀錄；失敗則記錄下來，後台面板會顯示告警
+    await clearBackupError();
     return NextResponse.json({ backup: meta });
   } catch (err) {
     console.error("[GET /api/backup/snapshot]", err);
+    await recordBackupError(
+      err instanceof Error ? err.message : String(err),
+    ).catch(() => {});
     return NextResponse.json({ error: "備份失敗" }, { status: 500 });
   }
 }

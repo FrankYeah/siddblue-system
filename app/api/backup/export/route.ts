@@ -4,6 +4,8 @@ import { exportAllData } from "@/lib/backup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// 全量匯出在資料量大時可能超過預設 10 秒上限
+export const maxDuration = 60;
 
 // GET /api/backup/export — 匯出目前全部資料為 JSON 檔 (需登入)
 export async function GET() {

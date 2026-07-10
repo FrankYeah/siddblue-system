@@ -48,6 +48,7 @@ const BACKUP_KEEP = 7;
 const BACKUP_INDEX_KEY = "backups:index";
 const BACKUP_META_KEY = (id: string) => `backup:meta:${id}`;
 const BACKUP_DATA_KEY = (id: string) => `backup:data:${id}`;
+const BACKUP_ERROR_KEY = "backup:lastError";
 
 const KV_ENABLED = Boolean(
   process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
@@ -68,6 +69,11 @@ const mem = ((
   data: new Map<string, BackupPayload>(),
 });
 
+// 失敗紀錄的記憶體後援獨立掛載，避免動到既有 __sbBackupsMem 的形狀
+const memError = ((
+  globalThis as unknown as { __sbBackupErrMem?: { value: BackupError | null } }
+).__sbBackupErrMem ??= { value: null });
+
 export interface BackupCounts {
   quotes: number;
   cases: number;
@@ -82,6 +88,14 @@ export interface BackupMeta {
   id: string;
   exportedAt: string;
   counts: BackupCounts;
+  /** 選填註記，如「還原前自動快照」；列表顯示用 */
+  note?: string;
+}
+
+/** 最近一次備份失敗的紀錄；成功時清除。供後台顯示告警，避免 Cron 默默失敗數月無人知 */
+export interface BackupError {
+  at: string;
+  message: string;
 }
 
 export interface BackupPayload {
@@ -165,14 +179,44 @@ async function rotateBackups(): Promise<void> {
   );
 }
 
+/** 記錄最近一次備份失敗（成功時清除）。供後台顯示告警，避免每日 Cron 默默失敗數月無人知 */
+export async function recordBackupError(message: string): Promise<void> {
+  const err: BackupError = {
+    at: new Date().toISOString(),
+    message: String(message ?? "未知錯誤").slice(0, 500),
+  };
+  if (KV_ENABLED) {
+    await kv.set(BACKUP_ERROR_KEY, err);
+  } else {
+    memError.value = err;
+  }
+}
+
+export async function clearBackupError(): Promise<void> {
+  if (KV_ENABLED) {
+    await kv.del(BACKUP_ERROR_KEY);
+  } else {
+    memError.value = null;
+  }
+}
+
+export async function getBackupError(): Promise<BackupError | null> {
+  noStore();
+  if (KV_ENABLED) {
+    return (await kv.get<BackupError>(BACKUP_ERROR_KEY)) ?? null;
+  }
+  return memError.value;
+}
+
 /** 建立一份快照，並輪替至只保留最近 BACKUP_KEEP 份 */
-export async function snapshotBackup(): Promise<BackupMeta> {
+export async function snapshotBackup(note?: string): Promise<BackupMeta> {
   const payload = await exportAllData();
   const id = nanoid(12);
   const meta: BackupMeta = {
     id,
     exportedAt: payload.exportedAt,
     counts: toCounts(payload),
+    ...(note ? { note } : {}),
   };
 
   if (KV_ENABLED) {
@@ -223,6 +267,11 @@ export async function restoreBackup(id: string): Promise<BackupMeta | null> {
     ? await kv.get<BackupPayload>(BACKUP_DATA_KEY(id))
     : mem.data.get(id) ?? null;
   if (!payload) return null;
+
+  // 還原前先把「當下」狀態快照起來（fail-closed：快照失敗即中止還原）——
+  // 誤按還原到舊快照時才有後悔藥。payload 已讀進記憶體，
+  // 即使這次快照的輪替把最舊的備份（可能正是還原來源）刪掉也不影響本次還原。
+  await snapshotBackup("還原前自動快照");
 
   await Promise.all([
     restoreQuotes(payload.quotes),

@@ -285,16 +285,20 @@ export async function restoreContactsData(
   if (KV_ENABLED) {
     const existingIds =
       (await kv.zrange<string[]>(CONTACT_INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length > 0) {
-      await Promise.all(existingIds.map((id) => kv.del(CONTACT_KEY(id))));
-      await kv.del(CONTACT_INDEX_KEY);
-    }
-    for (const c of contacts) {
-      await kv.set(CONTACT_KEY(c.id), c);
-      await kv.zadd(CONTACT_INDEX_KEY, {
-        score: new Date(c.updatedAt).getTime() || Date.now(),
-        member: c.id,
-      });
+    if (existingIds.length > 0 || contacts.length > 0) {
+      // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
+      // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
+      const pipeline = kv.pipeline();
+      existingIds.forEach((id) => pipeline.del(CONTACT_KEY(id)));
+      if (existingIds.length > 0) pipeline.del(CONTACT_INDEX_KEY);
+      for (const c of contacts) {
+        pipeline.set(CONTACT_KEY(c.id), c);
+        pipeline.zadd(CONTACT_INDEX_KEY, {
+          score: new Date(c.updatedAt).getTime() || Date.now(),
+          member: c.id,
+        });
+      }
+      await pipeline.exec();
     }
   } else {
     memStore.clear();

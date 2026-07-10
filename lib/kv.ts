@@ -216,17 +216,20 @@ export async function getAllQuotesFull(): Promise<Quote[]> {
 export async function restoreQuotes(quotes: Quote[]): Promise<void> {
   if (KV_ENABLED) {
     const existingIds = (await kv.zrange<string[]>(INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length > 0) {
-      await Promise.all(existingIds.map((id) => kv.del(QUOTE_KEY(id))));
-      await kv.del(INDEX_KEY);
-    }
+    if (existingIds.length === 0 && quotes.length === 0) return;
+    // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
+    // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
+    const pipeline = kv.pipeline();
+    existingIds.forEach((id) => pipeline.del(QUOTE_KEY(id)));
+    if (existingIds.length > 0) pipeline.del(INDEX_KEY);
     for (const q of quotes) {
-      await kv.set(QUOTE_KEY(q.id), q);
-      await kv.zadd(INDEX_KEY, {
+      pipeline.set(QUOTE_KEY(q.id), q);
+      pipeline.zadd(INDEX_KEY, {
         score: new Date(q.updatedAt).getTime() || Date.now(),
         member: q.id,
       });
     }
+    await pipeline.exec();
   } else {
     memStore.clear();
     quotes.forEach((q) => memStore.set(q.id, q));

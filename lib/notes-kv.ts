@@ -264,20 +264,28 @@ export async function restoreNotesData(notes: Note[]): Promise<void> {
   if (KV_ENABLED) {
     const existingIds =
       (await kv.zrange<string[]>(NOTE_INDEX_KEY, 0, -1)) ?? [];
-    for (const id of existingIds) {
-      const existing = await kv.get<Note>(NOTE_KEY(id));
-      await kv.del(NOTE_KEY(id));
-      if (existing?.shareToken) await kv.del(SHARE_KEY(existing.shareToken));
-    }
-    if (existingIds.length > 0) await kv.del(NOTE_INDEX_KEY);
+    if (existingIds.length === 0 && notes.length === 0) return;
+    // 先 mget 抓出既有筆記的 shareToken（一次讀取），
+    // 再以 pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
+    // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
+    const existing = existingIds.length
+      ? await kv.mget<(Note | null)[]>(...existingIds.map(NOTE_KEY))
+      : [];
+    const pipeline = kv.pipeline();
+    existingIds.forEach((id) => pipeline.del(NOTE_KEY(id)));
+    existing.forEach((n) => {
+      if (n?.shareToken) pipeline.del(SHARE_KEY(n.shareToken));
+    });
+    if (existingIds.length > 0) pipeline.del(NOTE_INDEX_KEY);
     for (const n of notes) {
-      await kv.set(NOTE_KEY(n.id), n);
-      await kv.zadd(NOTE_INDEX_KEY, {
+      pipeline.set(NOTE_KEY(n.id), n);
+      pipeline.zadd(NOTE_INDEX_KEY, {
         score: new Date(n.updatedAt).getTime() || Date.now(),
         member: n.id,
       });
-      await kv.set(SHARE_KEY(n.shareToken), n.id);
+      pipeline.set(SHARE_KEY(n.shareToken), n.id);
     }
+    await pipeline.exec();
   } else {
     memStore.clear();
     notes.forEach((n) => memStore.set(n.id, n));

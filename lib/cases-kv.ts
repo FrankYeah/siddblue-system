@@ -322,17 +322,20 @@ export async function restoreCasesData(cases: Case[]): Promise<void> {
   if (KV_ENABLED) {
     const existingIds =
       (await kv.zrange<string[]>(CASE_INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length > 0) {
-      await Promise.all(existingIds.map((id) => kv.del(CASE_KEY(id))));
-      await kv.del(CASE_INDEX_KEY);
-    }
+    if (existingIds.length === 0 && cases.length === 0) return;
+    // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
+    // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
+    const pipeline = kv.pipeline();
+    existingIds.forEach((id) => pipeline.del(CASE_KEY(id)));
+    if (existingIds.length > 0) pipeline.del(CASE_INDEX_KEY);
     for (const c of cases) {
-      await kv.set(CASE_KEY(c.id), c);
-      await kv.zadd(CASE_INDEX_KEY, {
+      pipeline.set(CASE_KEY(c.id), c);
+      pipeline.zadd(CASE_INDEX_KEY, {
         score: new Date(c.updatedAt).getTime() || Date.now(),
         member: c.id,
       });
     }
+    await pipeline.exec();
   } else {
     memStore.clear();
     cases.forEach((c) => memStore.set(c.id, c));

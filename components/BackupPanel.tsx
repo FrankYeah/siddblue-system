@@ -32,7 +32,17 @@ interface BackupMeta {
   id: string;
   exportedAt: string;
   counts: BackupCounts;
+  /** 選填註記，如「還原前自動快照」 */
+  note?: string;
 }
+
+interface BackupError {
+  at: string;
+  message: string;
+}
+
+/** 最新快照超過此時數即顯示「備份過期」警告（每日 Cron 正常時不會發生） */
+const STALE_HOURS = 36;
 
 function fmt(iso: string) {
   const d = new Date(iso);
@@ -52,6 +62,7 @@ function summarize(c: BackupCounts) {
 export default function BackupPanel() {
   const [open, setOpen] = useState(false);
   const [backups, setBackups] = useState<BackupMeta[]>([]);
+  const [lastError, setLastError] = useState<BackupError | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -67,10 +78,12 @@ export default function BackupPanel() {
     try {
       const res = await adminFetch("/api/backup/list");
       if (!res.ok) throw new Error();
-      const { backups: list } = (await res.json()) as {
+      const { backups: list, lastError: err } = (await res.json()) as {
         backups: BackupMeta[];
+        lastError?: BackupError | null;
       };
       setBackups(list);
+      setLastError(err ?? null);
       setLoaded(true);
     } catch {
       flash("讀取備份清單失敗");
@@ -78,6 +91,14 @@ export default function BackupPanel() {
       setLoading(false);
     }
   }
+
+  // 最新快照距今超過 STALE_HOURS → 每日 Cron 可能沒在跑（或一直失敗），顯示警告
+  const newestAt = backups.length > 0 ? new Date(backups[0].exportedAt).getTime() : 0;
+  const stale =
+    loaded &&
+    backups.length > 0 &&
+    Number.isFinite(newestAt) &&
+    Date.now() - newestAt > STALE_HOURS * 3600 * 1000;
 
   function toggleOpen() {
     setOpen((v) => {
@@ -102,7 +123,7 @@ export default function BackupPanel() {
   }
 
   async function restore(b: BackupMeta) {
-    const msg = `確定要還原到「${fmt(b.exportedAt)}」的備份？\n\n這會清空並覆寫目前所有資料（報價單、案件管理、人脈庫、知識庫、靈感看板、待辦清單），改回備份當時的內容：\n${summarize(b.counts)}\n\n此動作無法復原，請確認。`;
+    const msg = `確定要還原到「${fmt(b.exportedAt)}」的備份？\n\n這會清空並覆寫目前所有資料（報價單、案件管理、人脈庫、知識庫、靈感看板、待辦清單），改回備份當時的內容：\n${summarize(b.counts)}\n\n還原前會自動先為「目前狀態」建立一份快照，若還原錯了可再還原回來。`;
     if (!window.confirm(msg)) return;
     setBusy(true);
     try {
@@ -161,6 +182,23 @@ export default function BackupPanel() {
               </button>
             </div>
 
+            {/* 備份健康告警：Cron 失敗或快照過期時顯示，避免默默失敗數月無人知 */}
+            {lastError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                ⚠️ 最近一次自動備份失敗（{fmt(lastError.at)}）：
+                {lastError.message}
+                <br />
+                請按「立即備份」確認能否成功，持續失敗請檢查 Vercel 設定。
+              </div>
+            )}
+            {!lastError && stale && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                ⚠️ 最新備份是 {fmt(backups[0].exportedAt)}，已超過 {STALE_HOURS}{" "}
+                小時。每日自動備份可能沒有執行（檢查 Vercel Cron 與
+                CRON_SECRET 設定），建議先按「立即備份」。
+              </div>
+            )}
+
             <div className="mt-3 border-t border-paper-border pt-3">
               <div className="mb-1.5 text-xs font-medium text-paper-muted">
                 最近備份（每日自動保留 7 份）
@@ -183,6 +221,11 @@ export default function BackupPanel() {
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-paper-text">
                           {fmt(b.exportedAt)}
+                          {b.note && (
+                            <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-normal text-brand-700">
+                              {b.note}
+                            </span>
+                          )}
                         </div>
                         <div className="truncate text-[11px] text-paper-muted">
                           {summarize(b.counts)}

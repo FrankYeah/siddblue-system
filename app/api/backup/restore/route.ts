@@ -4,6 +4,8 @@ import { restoreBackup } from "@/lib/backup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// 還原 = 還原前自動快照 + 七模組清空重寫，資料量大時可能超過預設 10 秒上限
+export const maxDuration = 60;
 
 // POST /api/backup/restore — 還原到指定快照 (危險操作，覆寫目前全部資料；需登入)
 export async function POST(req: NextRequest) {

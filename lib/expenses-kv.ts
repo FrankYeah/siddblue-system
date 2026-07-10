@@ -191,17 +191,20 @@ export async function restoreExpensesData(expenses: Expense[]): Promise<void> {
   if (KV_ENABLED) {
     const existingIds =
       (await kv.zrange<string[]>(EXPENSE_INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length > 0) {
-      await Promise.all(existingIds.map((id) => kv.del(EXPENSE_KEY(id))));
-      await kv.del(EXPENSE_INDEX_KEY);
-    }
+    if (existingIds.length === 0 && expenses.length === 0) return;
+    // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
+    // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
+    const pipeline = kv.pipeline();
+    existingIds.forEach((id) => pipeline.del(EXPENSE_KEY(id)));
+    if (existingIds.length > 0) pipeline.del(EXPENSE_INDEX_KEY);
     for (const e of expenses) {
-      await kv.set(EXPENSE_KEY(e.id), e);
-      await kv.zadd(EXPENSE_INDEX_KEY, {
+      pipeline.set(EXPENSE_KEY(e.id), e);
+      pipeline.zadd(EXPENSE_INDEX_KEY, {
         score: new Date(e.updatedAt).getTime() || Date.now(),
         member: e.id,
       });
     }
+    await pipeline.exec();
   } else {
     memStore.clear();
     expenses.forEach((e) => memStore.set(e.id, e));
