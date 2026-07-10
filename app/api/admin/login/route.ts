@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ADMIN_COOKIE, expectedToken, verifyPassword } from "@/lib/auth";
+import {
+  ADMIN_COOKIE,
+  TOKEN_TTL_SECONDS,
+  issueToken,
+  verifyPassword,
+} from "@/lib/auth";
 import {
   getClientIp,
   isLoginThrottled,
@@ -41,12 +46,12 @@ export async function POST(req: NextRequest) {
 
     await recordLoginSuccess(ip);
     const res = NextResponse.json({ ok: true });
-    res.cookies.set(ADMIN_COOKIE, expectedToken(), {
+    res.cookies.set(ADMIN_COOKIE, issueToken(), {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 天
+      maxAge: TOKEN_TTL_SECONDS, // 與令牌內嵌的到期時間對齊（30 天）
     });
     return res;
   } catch {
