@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { renderMarkdown } from "@/lib/markdown";
+import { fmtDateTimeTW as fmt } from "@/lib/format";
 import type { Note, NoteType, ProcessStep } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
 import { useSyncOnFocus } from "./hooks";
@@ -73,17 +74,6 @@ function cloneSteps(steps: ProcessStep[]): ProcessStep[] {
   return steps.map((s) => ({ ...s, links: s.links.map((l) => ({ ...l })) }));
 }
 
-function fmt(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  // 以 UTC+8 (台北) 手動格式化，只用 getUTC*，不經 Intl；
-  // 確保 SSR (伺服器多為 UTC) 與客戶端輸出「逐字元一致」，避免 hydration mismatch。
-  const t = new Date(d.getTime() + 8 * 3600 * 1000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(t.getUTCMonth() + 1)}/${p(t.getUTCDate())} ${p(
-    t.getUTCHours(),
-  )}:${p(t.getUTCMinutes())}`;
-}
 
 export default function NotesBoard({
   initialNotes,

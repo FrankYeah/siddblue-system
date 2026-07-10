@@ -25,7 +25,7 @@ import {
   collectPartnerDues,
   partnerCostPaid,
 } from "@/lib/finance";
-import { formatNT, formatCurrency } from "@/lib/format";
+import { formatNT, formatCurrency, fmtDateTW } from "@/lib/format";
 import type {
   Case,
   CaseInput,
@@ -1089,7 +1089,7 @@ export default function CasesBoard({
             {draft.closedAt && (
               <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                 <CheckCircle2 size={15} className="shrink-0" />
-                已於 {new Date(draft.closedAt).toLocaleDateString("zh-TW")}{" "}
+                已於 {fmtDateTW(draft.closedAt)}{" "}
                 標記為已結案。
               </div>
             )}

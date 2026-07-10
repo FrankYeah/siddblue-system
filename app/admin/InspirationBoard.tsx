@@ -9,6 +9,7 @@ import {
 } from "@hello-pangea/dnd";
 import { Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
 import Linkify from "@/components/Linkify";
+import { fmtDateTimeTW as fmt } from "@/lib/format";
 import { useBodyScrollLock, useQueuedSave, useSyncOnFocus } from "./hooks";
 import type {
   Inspiration,
@@ -30,17 +31,6 @@ const COLUMNS: {
 
 function nowIso() {
   return new Date().toISOString();
-}
-function fmt(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
 }
 function newId() {
   return (

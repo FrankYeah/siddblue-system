@@ -32,7 +32,7 @@ import {
   DEFAULT_PAYMENT_INFO,
   DEFAULT_SUMMARY_TEXT,
 } from "@/lib/defaults";
-import { computeTotals, formatNT, quoteToInput } from "@/lib/format";
+import { computeTotals, fmtDateTW, formatNT, quoteToInput } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import type {
   Quote,
@@ -611,7 +611,7 @@ export default function AdminEditor({
                 <span>
                   客戶已於{" "}
                   {currentAcceptedAt
-                    ? new Date(currentAcceptedAt).toLocaleDateString("zh-TW")
+                    ? fmtDateTW(currentAcceptedAt)
                     : ""}{" "}
                   線上確認此報價單，欄位已鎖定以避免不小心誤改。
                 </span>

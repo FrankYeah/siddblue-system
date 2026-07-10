@@ -10,6 +10,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { adminFetch } from "@/lib/api-client";
+import { fmtDateTimeTW } from "@/lib/format";
 
 // ─────────────────────────────────────────────────────────────
 //  📦 資料備份與匯出 (Backup & Export Widget)
@@ -44,16 +45,7 @@ interface BackupError {
 /** 最新快照超過此時數即顯示「備份過期」警告（每日 Cron 正常時不會發生） */
 const STALE_HOURS = 36;
 
-function fmt(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  // 以 UTC+8 (台北) 手動格式化，避免 SSR/CSR 的 Intl 輸出不一致
-  const t = new Date(d.getTime() + 8 * 3600 * 1000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${t.getUTCFullYear()}/${p(t.getUTCMonth() + 1)}/${p(t.getUTCDate())} ${p(
-    t.getUTCHours(),
-  )}:${p(t.getUTCMinutes())}`;
-}
+const fmt = (iso: string) => fmtDateTimeTW(iso, { year: true });
 
 function summarize(c: BackupCounts) {
   return `報價 ${c.quotes}・案件 ${c.cases}・人脈 ${c.contacts}・筆記 ${c.notes}・靈感 ${c.inspirations}・待辦 ${c.todos}・支出 ${c.expenses ?? 0}`;

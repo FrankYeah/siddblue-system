@@ -18,21 +18,15 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { PaperPlane, SeagullFlock, CodeBraces } from "@/components/BrandDecor";
-import { computeTotals, formatNT, formatCurrency } from "@/lib/format";
+import { computeTotals, fmtDateTimeTW, formatNT, formatCurrency } from "@/lib/format";
 import type { QuoteTotals } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import type { Quote } from "@/lib/types";
 
 function fmtDateTime(iso?: string): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  // SSR-safe：伺服器 (UTC) 與客戶端輸出一致，避免 hydration mismatch
+  return fmtDateTimeTW(iso, { year: true });
 }
 
 export default function QuoteView({ quote }: { quote: Quote }) {

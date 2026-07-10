@@ -25,6 +25,20 @@ export function useQueuedSave<T>(save: (payload: T) => Promise<void>) {
   saveRef.current = save;
   const [saving, setSaving] = useState(false);
 
+  // 有在途或排隊中的變更時攔截關閉/重整分頁：
+  // 樂觀更新讓畫面看起來已完成，但 KV 寫入可能還在路上，直接關掉就遺失了
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (inflight.current || queued.current !== null) {
+        e.preventDefault();
+        // Chrome 需要設定 returnValue 才會顯示確認對話框
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   const enqueue = useCallback(async (payload: T) => {
     queued.current = payload;
     if (inflight.current) return; // 已有請求在途，完成後會自動補送最新酬載

@@ -35,6 +35,32 @@ export function computeTotals(
   return { subtotal, tax, grandTotal: subtotal + tax, taxInclusive };
 }
 
+/**
+ * ISO 時間 → 台北時間字串（全站唯一的日期時間格式化入口）。
+ *
+ * 手動 UTC+8、只用 getUTC*、不經 Intl/toLocaleString：
+ * SSR（伺服器多為 UTC）與客戶端的輸出「逐字元一致」，
+ * 避免 hydration mismatch（各板過去自刻 fmt、時區策略不一，正是這類 bug 的溫床）。
+ */
+export function fmtDateTimeTW(iso: string, opts?: { year?: boolean }): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const t = new Date(d.getTime() + 8 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const md = `${p(t.getUTCMonth() + 1)}/${p(t.getUTCDate())}`;
+  const hm = `${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`;
+  return opts?.year ? `${t.getUTCFullYear()}/${md} ${hm}` : `${md} ${hm}`;
+}
+
+/** ISO 時間 → 台北日期 "YYYY/MM/DD"（同上，SSR-safe） */
+export function fmtDateTW(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const t = new Date(d.getTime() + 8 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${t.getUTCFullYear()}/${p(t.getUTCMonth() + 1)}/${p(t.getUTCDate())}`;
+}
+
 /** 千分位金額 (無小數) */
 export function formatCurrency(amount: number): string {
   const n = Number(amount) || 0;
