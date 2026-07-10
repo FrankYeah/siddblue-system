@@ -723,6 +723,6 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 ## 8. 擴充新功能的建議路徑
 
 - **新增報價單欄位**：改 `lib/types.ts`（`Quote` + 視需要調整 `QuoteInput` 的 `Omit`）→ `lib/normalize.ts`（清理）→ `lib/defaults.ts`（預設值）→ `AdminEditor` 表單 + `QuoteView`/`PrintSheet` 呈現 →（如需相容舊資料）`migrateQuote()`。
-- **新增工作區模組**：整包看板類仿 `lib/workspace-kv.ts`（`workspace:*` blob + `GET/PUT`）；逐筆實體類仿 `lib/cases-kv.ts` / `lib/contacts-kv.ts`（`{entity}:{id}` + sorted set 索引 + CRUD API），再於 `AdminWorkspace` 增一個頁籤面板（沿用 `hidden` 切換）。
+- **新增工作區模組**：整包看板類仿 `lib/workspace-kv.ts`（`workspace:*` blob + `GET/PUT` + rev 版本號）；逐筆實體類用 **`lib/entity-store.ts` 的 `createEntityStore()` 工廠**（提供 migrate/cleanInput 純函式即得完整 CRUD + mget 批次讀 + pipeline 還原 + 記憶體後援，cases/contacts/expenses 皆為範例）＋ **`lib/crud-routes.ts` 的 `makeCollectionRoutes()`/`makeItemRoutes()`** 生成 API route，再於 `AdminWorkspace` 增一個頁籤面板（沿用 `hidden` 切換）。notes（分享 token）與 quotes（狀態機）因真實特例維持獨立實作。
 - **金額/稅務調整**：報價單改 `lib/format.ts` 的 `computeTotals()` / `TAX_RATE`；案件淨利改 `lib/finance.ts` 的 `computeCaseFinance()` / 稅率常數，各處會一致套用。
 - **保持慣例**：所有 KV 讀取務必 `noStore()`；寫入類 API 一律先 `isAuthenticated()`；不要把路由改成 Edge runtime。

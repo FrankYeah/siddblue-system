@@ -1,6 +1,4 @@
-import { kv } from "@vercel/kv";
-import { nanoid } from "nanoid";
-import { unstable_noStore as noStore } from "next/cache";
+import { createEntityStore } from "./entity-store";
 import type {
   BillingCycle,
   Expense,
@@ -12,28 +10,13 @@ import type {
 // ─────────────────────────────────────────────────────────────
 //  💳 金流與支出管理資料存取層 (Vercel KV)
 //
-//  儲存結構 (仿照 lib/cases-kv.ts)：
+//  儲存結構：
 //    expense:{id}      → 單筆支出 (JSON)
 //    expenses:index    → sorted set，member=id，score=updatedAt(ms)
-//                        後台列表用，依更新時間新→舊排序
 //
-//  未設定 KV 環境變數時 (本機開發未接 KV)，自動改用記憶體儲存。
-//  讀取一律 noStore()，避免 Server Component 服務到過期資料。
+//  CRUD 骨架（KV_ENABLED / 記憶體後援 / mget 批次讀 / pipeline 還原）
+//  由 lib/entity-store.ts 工廠提供，本檔只負責純函式的清理與遷移。
 // ─────────────────────────────────────────────────────────────
-
-const EXPENSE_KEY = (id: string) => `expense:${id}`;
-const EXPENSE_INDEX_KEY = "expenses:index";
-
-const KV_ENABLED = Boolean(
-  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
-);
-
-// ── 記憶體後援 (本機無 KV 時使用) ──
-// 掛在 globalThis 上，確保開發模式下 Route Handler 與 Server Component
-// 這些分開打包的模組實例共用同一份資料 (正式環境走 KV，不會用到此後援)。
-const memStore: Map<string, Expense> = ((
-  globalThis as unknown as { __sbExpensesMem?: Map<string, Expense> }
-).__sbExpensesMem ??= new Map<string, Expense>());
 
 const ENTITIES: ExpenseEntity[] = ["company", "personal"];
 const CATEGORIES: ExpenseCategory[] = [
@@ -94,121 +77,28 @@ function cleanInput(input: ExpenseInput): ExpenseInput {
   };
 }
 
+const store = createEntityStore<Expense, ExpenseInput>({
+  keyPrefix: "expense",
+  indexKey: "expenses:index",
+  memGlobalKey: "__sbExpensesMem",
+  migrate: migrateExpense,
+  cleanInput,
+});
+
 /** 建立新支出 */
-export async function createExpense(input: ExpenseInput): Promise<Expense> {
-  const now = new Date().toISOString();
-  const record: Expense = {
-    ...cleanInput(input),
-    id: nanoid(10),
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  if (KV_ENABLED) {
-    await kv.set(EXPENSE_KEY(record.id), record);
-    await kv.zadd(EXPENSE_INDEX_KEY, { score: Date.now(), member: record.id });
-  } else {
-    memStore.set(record.id, record);
-  }
-  return record;
-}
-
+export const createExpense = store.create;
 /** 讀取單筆支出 */
-export async function getExpense(id: string): Promise<Expense | null> {
-  noStore();
-  if (!id) return null;
-  if (KV_ENABLED) {
-    const record = await kv.get<Expense>(EXPENSE_KEY(id));
-    return migrateExpense(record ?? null);
-  }
-  return migrateExpense(memStore.get(id) ?? null);
-}
-
+export const getExpense = store.get;
 /** 更新支出 (保留 id / createdAt) */
-export async function updateExpense(
-  id: string,
-  input: ExpenseInput,
-): Promise<Expense | null> {
-  const existing = await getExpense(id);
-  if (!existing) return null;
-
-  const updated: Expense = {
-    ...existing,
-    ...cleanInput(input),
-    id: existing.id,
-    createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (KV_ENABLED) {
-    await kv.set(EXPENSE_KEY(id), updated);
-    await kv.zadd(EXPENSE_INDEX_KEY, { score: Date.now(), member: id });
-  } else {
-    memStore.set(id, updated);
-  }
-  return updated;
-}
-
+export const updateExpense = store.update;
 /** 刪除支出 */
-export async function deleteExpense(id: string): Promise<boolean> {
-  const existing = await getExpense(id);
-  if (!existing) return false;
-
-  if (KV_ENABLED) {
-    await kv.del(EXPENSE_KEY(id));
-    await kv.zrem(EXPENSE_INDEX_KEY, id);
-  } else {
-    memStore.delete(id);
-  }
-  return true;
-}
-
+export const deleteExpense = store.remove;
 /** 取得所有支出 (新 → 舊)，後台初始載入與列表使用 */
-export async function getAllExpenses(): Promise<Expense[]> {
-  noStore();
-  if (KV_ENABLED) {
-    const ids = await kv.zrange<string[]>(EXPENSE_INDEX_KEY, 0, -1, {
-      rev: true,
-    });
-    if (!ids || ids.length === 0) return [];
-    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
-    const raw = await kv.mget<(Expense | null)[]>(...ids.map(EXPENSE_KEY));
-    return raw
-      .map((e) => migrateExpense(e ?? null))
-      .filter((e): e is Expense => Boolean(e));
-  }
-  return Array.from(memStore.values())
-    .map((e) => migrateExpense(e))
-    .filter((e): e is Expense => Boolean(e))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
-
+export const getAllExpenses = store.getAll;
 /**
  * 完整覆寫支出資料 (備份還原用)：清空現有全部，寫入 snapshot 內容。
  * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
  */
-export async function restoreExpensesData(expenses: Expense[]): Promise<void> {
-  if (KV_ENABLED) {
-    const existingIds =
-      (await kv.zrange<string[]>(EXPENSE_INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length === 0 && expenses.length === 0) return;
-    // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
-    // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
-    const pipeline = kv.pipeline();
-    existingIds.forEach((id) => pipeline.del(EXPENSE_KEY(id)));
-    if (existingIds.length > 0) pipeline.del(EXPENSE_INDEX_KEY);
-    for (const e of expenses) {
-      pipeline.set(EXPENSE_KEY(e.id), e);
-      pipeline.zadd(EXPENSE_INDEX_KEY, {
-        score: new Date(e.updatedAt).getTime() || Date.now(),
-        member: e.id,
-      });
-    }
-    await pipeline.exec();
-  } else {
-    memStore.clear();
-    expenses.forEach((e) => memStore.set(e.id, e));
-  }
-}
+export const restoreExpensesData = store.restoreAll;
 
-export { KV_ENABLED };
+export const KV_ENABLED = store.KV_ENABLED;

@@ -1,6 +1,7 @@
 import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
 import { unstable_noStore as noStore } from "next/cache";
+import { createEntityStore } from "./entity-store";
 import { groupSortContacts } from "./contacts-sort";
 import type {
   Contact,
@@ -13,39 +14,18 @@ import type {
 // ─────────────────────────────────────────────────────────────
 //  人脈資料庫存取層 (Vercel KV)
 //
-//  儲存結構 (仿照 lib/notes-kv.ts)：
+//  儲存結構：
 //    contact:{id}      → 單筆聯絡人 (JSON)
 //    contacts:index    → sorted set，member=id，score=updatedAt(ms)
-//                        依更新時間新→舊 (資料表的後備排序)
 //    contacts:order    → JSON string[]，手動拖曳後的顯示順序 (id 陣列)；
 //                        不存在 = 未手動排序，改用預設分組排序
 //                        (lib/contacts-sort.ts groupSortContacts)
 //
-//  未設定 KV 環境變數時 (本機開發未接 KV)，自動改用記憶體儲存。
-//  讀取一律 noStore()，避免 Server Component 服務到過期資料。
+//  CRUD 骨架由 lib/entity-store.ts 工廠提供；
+//  手動排序 (order) 與 CSV 整批匯入為本模組特有，維持本地實作。
 // ─────────────────────────────────────────────────────────────
 
-const CONTACT_KEY = (id: string) => `contact:${id}`;
-const CONTACT_INDEX_KEY = "contacts:index";
 const CONTACT_ORDER_KEY = "contacts:order";
-
-const KV_ENABLED = Boolean(
-  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
-);
-
-// ── 記憶體後援 (本機無 KV 時使用) ──
-// 掛在 globalThis 上，確保開發模式下 Route Handler 與 Server Component
-// 這些分開打包的模組實例共用同一份資料 (正式環境走 KV，不會用到此後援)。
-const memStore: Map<string, Contact> = ((
-  globalThis as unknown as { __sbContactsMem?: Map<string, Contact> }
-).__sbContactsMem ??= new Map<string, Contact>());
-
-// 手動排序的記憶體後援 (同樣掛 globalThis，跨模組實例共用)
-const memOrder = ((
-  globalThis as unknown as {
-    __sbContactsOrderMem?: { value: string[] | null };
-  }
-).__sbContactsOrderMem ??= { value: null });
 
 const LEVELS: ContactLevel[] = ["high", "medium", "low", "unknown"];
 const STATUSES: ContactStatus[] = [
@@ -107,24 +87,33 @@ function cleanInput(input: ContactInput): ContactInput {
   };
 }
 
-/** 建立新聯絡人 */
-export async function createContact(input: ContactInput): Promise<Contact> {
-  const now = new Date().toISOString();
-  const contact: Contact = {
-    ...cleanInput(input),
-    id: nanoid(10),
-    createdAt: now,
-    updatedAt: now,
-  };
+const store = createEntityStore<Contact, ContactInput>({
+  keyPrefix: "contact",
+  indexKey: "contacts:index",
+  memGlobalKey: "__sbContactsMem",
+  migrate: migrateContact,
+  cleanInput,
+});
 
-  if (KV_ENABLED) {
-    await kv.set(CONTACT_KEY(contact.id), contact);
-    await kv.zadd(CONTACT_INDEX_KEY, { score: Date.now(), member: contact.id });
-  } else {
-    memStore.set(contact.id, contact);
+const KV_ENABLED = store.KV_ENABLED;
+
+/** 建立新聯絡人 */
+export const createContact = store.create;
+/** 讀取單筆聯絡人 */
+export const getContact = store.get;
+/** 更新聯絡人 (保留 id / createdAt) */
+export const updateContact = store.update;
+/** 刪除聯絡人 */
+export const deleteContact = store.remove;
+/** 取得所有聯絡人 (依更新時間新 → 舊；不套用手動排序) */
+export const getAllContacts = store.getAll;
+
+// ── 手動排序的記憶體後援 (同樣掛 globalThis，跨模組實例共用) ──
+const memOrder = ((
+  globalThis as unknown as {
+    __sbContactsOrderMem?: { value: string[] | null };
   }
-  return contact;
-}
+).__sbContactsOrderMem ??= { value: null });
 
 /** 整批匯入聯絡人 (CSV 匯入用)，回傳成功建立的筆數 */
 export async function importContacts(
@@ -143,84 +132,14 @@ export async function importContacts(
     // pipeline 一次寫入，避免上百筆時逐筆 round-trip
     const pipeline = kv.pipeline();
     contacts.forEach((c, i) => {
-      pipeline.set(CONTACT_KEY(c.id), c);
-      pipeline.zadd(CONTACT_INDEX_KEY, { score: now + i, member: c.id });
+      pipeline.set(store.KEY(c.id), c);
+      pipeline.zadd("contacts:index", { score: now + i, member: c.id });
     });
     await pipeline.exec();
   } else {
-    contacts.forEach((c) => memStore.set(c.id, c));
+    contacts.forEach((c) => store.memStore.set(c.id, c));
   }
   return contacts;
-}
-
-/** 讀取單筆聯絡人 */
-export async function getContact(id: string): Promise<Contact | null> {
-  noStore();
-  if (!id) return null;
-  if (KV_ENABLED) {
-    const contact = await kv.get<Contact>(CONTACT_KEY(id));
-    return migrateContact(contact ?? null);
-  }
-  return migrateContact(memStore.get(id) ?? null);
-}
-
-/** 更新聯絡人 (保留 id / createdAt) */
-export async function updateContact(
-  id: string,
-  input: ContactInput,
-): Promise<Contact | null> {
-  const existing = await getContact(id);
-  if (!existing) return null;
-
-  const updated: Contact = {
-    ...existing,
-    ...cleanInput(input),
-    id: existing.id,
-    createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (KV_ENABLED) {
-    await kv.set(CONTACT_KEY(id), updated);
-    await kv.zadd(CONTACT_INDEX_KEY, { score: Date.now(), member: id });
-  } else {
-    memStore.set(id, updated);
-  }
-  return updated;
-}
-
-/** 刪除聯絡人 */
-export async function deleteContact(id: string): Promise<boolean> {
-  const existing = await getContact(id);
-  if (!existing) return false;
-
-  if (KV_ENABLED) {
-    await kv.del(CONTACT_KEY(id));
-    await kv.zrem(CONTACT_INDEX_KEY, id);
-  } else {
-    memStore.delete(id);
-  }
-  return true;
-}
-
-/** 取得所有聯絡人 (依更新時間新 → 舊；不套用手動排序) */
-export async function getAllContacts(): Promise<Contact[]> {
-  noStore();
-  if (KV_ENABLED) {
-    const ids = await kv.zrange<string[]>(CONTACT_INDEX_KEY, 0, -1, {
-      rev: true,
-    });
-    if (!ids || ids.length === 0) return [];
-    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
-    const raw = await kv.mget<(Contact | null)[]>(...ids.map(CONTACT_KEY));
-    return raw
-      .map((c) => migrateContact(c ?? null))
-      .filter((c): c is Contact => Boolean(c));
-  }
-  return Array.from(memStore.values())
-    .map((c) => migrateContact(c))
-    .filter((c): c is Contact => Boolean(c))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 /** 讀取手動排序 (id 陣列)；null = 未手動排序 */
@@ -282,28 +201,7 @@ export async function restoreContactsData(
   contacts: Contact[],
   order: string[] | null,
 ): Promise<void> {
-  if (KV_ENABLED) {
-    const existingIds =
-      (await kv.zrange<string[]>(CONTACT_INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length > 0 || contacts.length > 0) {
-      // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
-      // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
-      const pipeline = kv.pipeline();
-      existingIds.forEach((id) => pipeline.del(CONTACT_KEY(id)));
-      if (existingIds.length > 0) pipeline.del(CONTACT_INDEX_KEY);
-      for (const c of contacts) {
-        pipeline.set(CONTACT_KEY(c.id), c);
-        pipeline.zadd(CONTACT_INDEX_KEY, {
-          score: new Date(c.updatedAt).getTime() || Date.now(),
-          member: c.id,
-        });
-      }
-      await pipeline.exec();
-    }
-  } else {
-    memStore.clear();
-    contacts.forEach((c) => memStore.set(c.id, c));
-  }
+  await store.restoreAll(contacts);
   await saveContactsOrder(order);
 }
 

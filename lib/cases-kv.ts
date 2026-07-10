@@ -1,6 +1,5 @@
-import { kv } from "@vercel/kv";
 import { nanoid } from "nanoid";
-import { unstable_noStore as noStore } from "next/cache";
+import { createEntityStore } from "./entity-store";
 import type {
   Case,
   CaseInput,
@@ -13,31 +12,16 @@ import type {
 // ─────────────────────────────────────────────────────────────
 //  案件與財務管理資料存取層 (Vercel KV)
 //
-//  儲存結構 (仿照 lib/notes-kv.ts)：
+//  儲存結構：
 //    case:{id}      → 單筆案件 (JSON)
 //    cases:index    → sorted set，member=id，score=updatedAt(ms)
-//                     後台列表用，依更新時間新→舊排序
 //
 //  金額 (totalAmount / receivedAmount / partnerCosts[].amount) 一律存數字；
 //  未收款餘額、代扣稅額、淨利皆為衍生值 (lib/finance.ts 計算)，不落地。
 //
-//  未設定 KV 環境變數時 (本機開發未接 KV)，自動改用記憶體儲存。
-//  讀取一律 noStore()，避免 Server Component 服務到過期資料。
+//  CRUD 骨架（KV_ENABLED / 記憶體後援 / mget 批次讀 / pipeline 還原）
+//  由 lib/entity-store.ts 工廠提供，本檔只負責純函式的清理與遷移。
 // ─────────────────────────────────────────────────────────────
-
-const CASE_KEY = (id: string) => `case:${id}`;
-const CASE_INDEX_KEY = "cases:index";
-
-const KV_ENABLED = Boolean(
-  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
-);
-
-// ── 記憶體後援 (本機無 KV 時使用) ──
-// 掛在 globalThis 上，確保開發模式下 Route Handler 與 Server Component
-// 這些分開打包的模組實例共用同一份資料 (正式環境走 KV，不會用到此後援)。
-const memStore: Map<string, Case> = ((
-  globalThis as unknown as { __sbCasesMem?: Map<string, Case> }
-).__sbCasesMem ??= new Map<string, Case>());
 
 const PAY_STATUSES: PartnerPayStatus[] = ["unpaid", "deposit", "paid"];
 const CASE_TYPES: CaseType[] = ["own", "invoice"];
@@ -227,119 +211,28 @@ function cleanInput(input: CaseInput): CaseInput {
   };
 }
 
+const store = createEntityStore<Case, CaseInput>({
+  keyPrefix: "case",
+  indexKey: "cases:index",
+  memGlobalKey: "__sbCasesMem",
+  migrate: migrateCase,
+  cleanInput,
+});
+
 /** 建立新案件 */
-export async function createCase(input: CaseInput): Promise<Case> {
-  const now = new Date().toISOString();
-  const record: Case = {
-    ...cleanInput(input),
-    id: nanoid(10),
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  if (KV_ENABLED) {
-    await kv.set(CASE_KEY(record.id), record);
-    await kv.zadd(CASE_INDEX_KEY, { score: Date.now(), member: record.id });
-  } else {
-    memStore.set(record.id, record);
-  }
-  return record;
-}
-
+export const createCase = store.create;
 /** 讀取單筆案件 */
-export async function getCase(id: string): Promise<Case | null> {
-  noStore();
-  if (!id) return null;
-  if (KV_ENABLED) {
-    const record = await kv.get<Case>(CASE_KEY(id));
-    return migrateCase(record ?? null);
-  }
-  return migrateCase(memStore.get(id) ?? null);
-}
-
+export const getCase = store.get;
 /** 更新案件 (保留 id / createdAt) */
-export async function updateCase(
-  id: string,
-  input: CaseInput,
-): Promise<Case | null> {
-  const existing = await getCase(id);
-  if (!existing) return null;
-
-  const updated: Case = {
-    ...existing,
-    ...cleanInput(input),
-    id: existing.id,
-    createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (KV_ENABLED) {
-    await kv.set(CASE_KEY(id), updated);
-    await kv.zadd(CASE_INDEX_KEY, { score: Date.now(), member: id });
-  } else {
-    memStore.set(id, updated);
-  }
-  return updated;
-}
-
+export const updateCase = store.update;
 /** 刪除案件 */
-export async function deleteCase(id: string): Promise<boolean> {
-  const existing = await getCase(id);
-  if (!existing) return false;
-
-  if (KV_ENABLED) {
-    await kv.del(CASE_KEY(id));
-    await kv.zrem(CASE_INDEX_KEY, id);
-  } else {
-    memStore.delete(id);
-  }
-  return true;
-}
-
+export const deleteCase = store.remove;
 /** 取得所有案件 (新 → 舊)，後台初始載入與列表使用 */
-export async function getAllCases(): Promise<Case[]> {
-  noStore();
-  if (KV_ENABLED) {
-    const ids = await kv.zrange<string[]>(CASE_INDEX_KEY, 0, -1, { rev: true });
-    if (!ids || ids.length === 0) return [];
-    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
-    const raw = await kv.mget<(Case | null)[]>(...ids.map(CASE_KEY));
-    return raw
-      .map((c) => migrateCase(c ?? null))
-      .filter((c): c is Case => Boolean(c));
-  }
-  return Array.from(memStore.values())
-    .map((c) => migrateCase(c))
-    .filter((c): c is Case => Boolean(c))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
-
+export const getAllCases = store.getAll;
 /**
  * 完整覆寫案件資料 (備份還原用)：清空現有全部，寫入 snapshot 內容。
  * 危險操作，僅供 lib/backup.ts 的 restoreBackup() 呼叫。
  */
-export async function restoreCasesData(cases: Case[]): Promise<void> {
-  if (KV_ENABLED) {
-    const existingIds =
-      (await kv.zrange<string[]>(CASE_INDEX_KEY, 0, -1)) ?? [];
-    if (existingIds.length === 0 && cases.length === 0) return;
-    // pipeline 一次送出「清空 + 重寫」：單一 HTTP 請求，
-    // 避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫
-    const pipeline = kv.pipeline();
-    existingIds.forEach((id) => pipeline.del(CASE_KEY(id)));
-    if (existingIds.length > 0) pipeline.del(CASE_INDEX_KEY);
-    for (const c of cases) {
-      pipeline.set(CASE_KEY(c.id), c);
-      pipeline.zadd(CASE_INDEX_KEY, {
-        score: new Date(c.updatedAt).getTime() || Date.now(),
-        member: c.id,
-      });
-    }
-    await pipeline.exec();
-  } else {
-    memStore.clear();
-    cases.forEach((c) => memStore.set(c.id, c));
-  }
-}
+export const restoreCasesData = store.restoreAll;
 
-export { KV_ENABLED };
+export const KV_ENABLED = store.KV_ENABLED;
