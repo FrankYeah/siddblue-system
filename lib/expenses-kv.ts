@@ -171,8 +171,11 @@ export async function getAllExpenses(): Promise<Expense[]> {
       rev: true,
     });
     if (!ids || ids.length === 0) return [];
-    const records = await Promise.all(ids.map((id) => getExpense(id)));
-    return records.filter((e): e is Expense => Boolean(e));
+    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
+    const raw = await kv.mget<(Expense | null)[]>(...ids.map(EXPENSE_KEY));
+    return raw
+      .map((e) => migrateExpense(e ?? null))
+      .filter((e): e is Expense => Boolean(e));
   }
   return Array.from(memStore.values())
     .map((e) => migrateExpense(e))

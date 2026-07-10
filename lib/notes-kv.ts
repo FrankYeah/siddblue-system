@@ -209,8 +209,11 @@ export async function getAllNotes(): Promise<Note[]> {
   if (KV_ENABLED) {
     const ids = await kv.zrange<string[]>(NOTE_INDEX_KEY, 0, -1, { rev: true });
     if (!ids || ids.length === 0) return [];
-    const notes = await Promise.all(ids.map((id) => getNote(id)));
-    return notes.filter((n): n is Note => Boolean(n));
+    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
+    const raw = await kv.mget<(Note | null)[]>(...ids.map(NOTE_KEY));
+    return raw
+      .map((n) => migrateNote(n ?? null))
+      .filter((n): n is Note => Boolean(n));
   }
   return Array.from(memStore.values())
     .map((n) => migrateNote(n))

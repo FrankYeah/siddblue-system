@@ -302,8 +302,11 @@ export async function getAllCases(): Promise<Case[]> {
   if (KV_ENABLED) {
     const ids = await kv.zrange<string[]>(CASE_INDEX_KEY, 0, -1, { rev: true });
     if (!ids || ids.length === 0) return [];
-    const records = await Promise.all(ids.map((id) => getCase(id)));
-    return records.filter((c): c is Case => Boolean(c));
+    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
+    const raw = await kv.mget<(Case | null)[]>(...ids.map(CASE_KEY));
+    return raw
+      .map((c) => migrateCase(c ?? null))
+      .filter((c): c is Case => Boolean(c));
   }
   return Array.from(memStore.values())
     .map((c) => migrateCase(c))

@@ -211,8 +211,11 @@ export async function getAllContacts(): Promise<Contact[]> {
       rev: true,
     });
     if (!ids || ids.length === 0) return [];
-    const contacts = await Promise.all(ids.map((id) => getContact(id)));
-    return contacts.filter((c): c is Contact => Boolean(c));
+    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
+    const raw = await kv.mget<(Contact | null)[]>(...ids.map(CONTACT_KEY));
+    return raw
+      .map((c) => migrateContact(c ?? null))
+      .filter((c): c is Contact => Boolean(c));
   }
   return Array.from(memStore.values())
     .map((c) => migrateContact(c))

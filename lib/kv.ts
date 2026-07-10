@@ -186,30 +186,22 @@ export async function deleteQuote(id: string): Promise<boolean> {
 
 /** 列出所有報價單摘要 (新 → 舊) */
 export async function listQuotes(): Promise<QuoteSummary[]> {
-  noStore();
-  if (KV_ENABLED) {
-    const ids = await kv.zrange<string[]>(INDEX_KEY, 0, -1, { rev: true });
-    if (!ids || ids.length === 0) return [];
-    // 批次讀取
-    const quotes = await Promise.all(ids.map((id) => getQuote(id)));
-    return quotes
-      .filter((q): q is Quote => Boolean(q))
-      .map(toSummary);
-  }
-
-  return Array.from(memStore.values())
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map(toSummary);
+  const quotes = await getAllQuotesFull();
+  return quotes.map(toSummary);
 }
 
-/** 取得所有完整報價單 (新 → 舊)，備份匯出使用 */
+/** 取得所有完整報價單 (新 → 舊)，後台列表與備份匯出使用 */
 export async function getAllQuotesFull(): Promise<Quote[]> {
   noStore();
   if (KV_ENABLED) {
     const ids = await kv.zrange<string[]>(INDEX_KEY, 0, -1, { rev: true });
     if (!ids || ids.length === 0) return [];
-    const quotes = await Promise.all(ids.map((id) => getQuote(id)));
-    return quotes.filter((q): q is Quote => Boolean(q));
+    // mget 一次讀回全部，避免逐筆 get 的 N+1 round-trip
+    // (每筆一個 HTTP 請求，延遲與 Upstash 指令數都隨資料量線性成長)
+    const raw = await kv.mget<(Quote | null)[]>(...ids.map(QUOTE_KEY));
+    return raw
+      .map((q) => migrateQuote(q ?? null))
+      .filter((q): q is Quote => Boolean(q));
   }
   return Array.from(memStore.values())
     .map((q) => migrateQuote(q))
