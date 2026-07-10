@@ -21,6 +21,7 @@ import type {
   ExpenseInput,
 } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
+import { useBodyScrollLock } from "./hooks";
 
 // ─────────────────────────────────────────────────────────────
 //  💳 金流與支出管理 (Expense Tracking)
@@ -113,6 +114,8 @@ export default function ExpensesBoard({
     ? (expenses.find((e) => e.id === modalId) ?? null)
     : null;
   const modalOpen = creating || Boolean(editingExpense);
+  // Modal 開啟時鎖定背景捲動（iOS scroll chaining）
+  useBodyScrollLock(modalOpen);
 
   // 🏢🧑 每月固定支出 (Burn Rate)：monthly 全額 + yearly / 12，依歸屬分組
   const burnRate = useMemo(() => {
@@ -416,7 +419,7 @@ export default function ExpensesBoard({
           aria-modal="true"
         >
           <div
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-paper-border bg-white p-5 shadow-float"
+            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-paper-border bg-white p-5 shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between gap-3">

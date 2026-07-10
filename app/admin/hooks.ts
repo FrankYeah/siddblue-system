@@ -52,6 +52,42 @@ export function useQueuedSave<T>(save: (payload: T) => Promise<void>) {
 }
 
 /**
+ * Modal 開啟期間鎖定背景頁面捲動。
+ *
+ * iOS Safari 的 `fixed inset-0` Modal 沒鎖 body 時，Modal 內容捲到底
+ * 會 scroll chaining 繼續捲動背景頁（背景位移、關閉後位置跳掉）。
+ * 單純 `overflow: hidden` 在 iOS 上不可靠，故用標準的 position:fixed
+ * 技法：鎖定時把 body 固定在目前捲動位置，解鎖時還原捲動座標。
+ */
+export function useBodyScrollLock(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const body = document.body;
+    const scrollY = window.scrollY;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      window.scrollTo(0, scrollY);
+    };
+  }, [active]);
+}
+
+/**
  * 視窗重獲焦點時重新同步資料。
  *
  * /admin 的看板資料只在頁面載入時從 Server Component 帶入一次；

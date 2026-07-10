@@ -37,6 +37,7 @@ import type {
   QuoteSummary,
 } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
+import { useBodyScrollLock } from "./hooks";
 
 // ─────────────────────────────────────────────────────────────
 //  💼 案件與財務管理 (Case & Finance Management)
@@ -449,6 +450,8 @@ export default function CasesBoard({
   const editingCase = modalId
     ? (cases.find((c) => c.id === modalId) ?? null)
     : null;
+  // Modal 開啟時鎖定背景捲動（iOS scroll chaining）；渲染條件即 editingCase
+  useBodyScrollLock(Boolean(editingCase));
 
   // 🔔 催款提醒：所有「有未收款餘額」的案件 (金額大 → 小)；已結案不再提醒催款
   const unpaidCases = useMemo(
@@ -1009,7 +1012,7 @@ export default function CasesBoard({
           aria-modal="true"
         >
           <div
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-paper-border bg-white p-5 shadow-float"
+            className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-paper-border bg-white p-5 shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between gap-3">

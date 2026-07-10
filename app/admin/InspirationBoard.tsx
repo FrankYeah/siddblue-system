@@ -9,7 +9,7 @@ import {
 } from "@hello-pangea/dnd";
 import { Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
 import Linkify from "@/components/Linkify";
-import { useQueuedSave, useSyncOnFocus } from "./hooks";
+import { useBodyScrollLock, useQueuedSave, useSyncOnFocus } from "./hooks";
 import type {
   Inspiration,
   InspirationBoard as BoardData,
@@ -74,6 +74,8 @@ export default function InspirationBoard({
   // 掛載後才渲染拖曳元件，避開 SSR / StrictMode 的 mounting 問題
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // Modal 開啟時鎖定背景捲動（iOS scroll chaining）
+  useBodyScrollLock(Boolean(editing));
 
   function flash(msg: string) {
     setToast(msg);
@@ -380,7 +382,7 @@ export default function InspirationBoard({
           onClick={() => setEditing(null)}
         >
           <div
-            className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-float"
+            className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">

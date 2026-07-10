@@ -29,7 +29,7 @@ import {
   professionColor,
   buildProfessionColorMap,
 } from "@/lib/contacts-sort";
-import { useQueuedSave } from "./hooks";
+import { useBodyScrollLock, useQueuedSave } from "./hooks";
 import type {
   Case,
   Contact,
@@ -217,6 +217,8 @@ export default function ContactsBoard({
     value: ContactLevel;
   } | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
+  // Modal 開啟時鎖定背景捲動（iOS scroll chaining）
+  useBodyScrollLock(Boolean(modal));
   const [draft, setDraft] = useState<ContactInput>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -922,7 +924,7 @@ export default function ContactsBoard({
           aria-modal="true"
         >
           <div
-            className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-paper-border bg-white p-5 shadow-float"
+            className="max-h-[88dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-paper-border bg-white p-5 shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between gap-3">
