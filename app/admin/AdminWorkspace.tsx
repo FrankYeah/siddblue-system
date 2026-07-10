@@ -18,7 +18,7 @@ import type {
   Contact,
   Expense,
   InspirationBoard as InspirationBoardData,
-  Note,
+  NoteSummary,
   QuoteSummary,
   TodoBoard as TodoBoardData,
 } from "@/lib/types";
@@ -71,7 +71,7 @@ export default function AdminWorkspace({
   initialTodos: TodoBoardData;
   /** 待辦清單的版本號 */
   initialTodosRev: number;
-  initialNotes: Note[];
+  initialNotes: NoteSummary[];
   initialCases: Case[];
   initialContacts: Contact[];
   initialContactsOrdered: boolean;

@@ -1,7 +1,7 @@
 import { isAuthenticated, adminPasswordSet } from "@/lib/auth";
 import { listQuotes } from "@/lib/kv";
 import { getInspirationsView, getTodosView } from "@/lib/workspace-kv";
-import { getAllNotes } from "@/lib/notes-kv";
+import { listNotes } from "@/lib/notes-kv";
 import { getAllCases } from "@/lib/cases-kv";
 import { getContactsView } from "@/lib/contacts-kv";
 import { getAllExpenses } from "@/lib/expenses-kv";
@@ -20,7 +20,7 @@ export default async function AdminPage() {
       listQuotes(),
       getInspirationsView(),
       getTodosView(),
-      getAllNotes(),
+      listNotes(),
       getAllCases(),
       getContactsView(),
       getAllExpenses(),

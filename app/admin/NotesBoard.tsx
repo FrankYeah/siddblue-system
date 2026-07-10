@@ -25,7 +25,7 @@ import {
 import TextareaAutosize from "react-textarea-autosize";
 import { renderMarkdown } from "@/lib/markdown";
 import { fmtDateTimeTW as fmt } from "@/lib/format";
-import type { Note, NoteType, ProcessStep } from "@/lib/types";
+import type { Note, NoteSummary, NoteType, ProcessStep } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
 import { useSyncOnFocus } from "./hooks";
 
@@ -74,16 +74,39 @@ function cloneSteps(steps: ProcessStep[]): ProcessStep[] {
   return steps.map((s) => ({ ...s, links: s.links.map((l) => ({ ...l })) }));
 }
 
+/**
+ * 首屏只拿摘要（不含 content/steps/shareToken，避免所有筆記全文塞進 RSC payload），
+ * 先以空內容的偽 Note 撐起列表，掛載後立刻抓全文補齊（hydrated）。
+ */
+function summaryToStubNote(s: NoteSummary): Note {
+  return {
+    id: s.id,
+    title: s.title,
+    content: "",
+    tags: s.tags,
+    type: s.type,
+    steps: [],
+    isShared: s.isShared,
+    shareToken: "",
+    createdAt: s.updatedAt,
+    updatedAt: s.updatedAt,
+  };
+}
 
 export default function NotesBoard({
   initialNotes,
   searchQuery = "",
 }: {
-  initialNotes: Note[];
+  /** 首屏摘要（全文於掛載後補齊，見 summaryToStubNote） */
+  initialNotes: NoteSummary[];
   /** 全域搜尋框（AdminWorkspace）傳入的關鍵字，與列表內搜尋 / Tag 篩選以 AND 疊加 */
   searchQuery?: string;
 }) {
-  const [notes, setNotes] = useState<Note[]>(initialNotes);
+  const [notes, setNotes] = useState<Note[]>(() =>
+    initialNotes.map(summaryToStubNote),
+  );
+  // 全文是否已載入：載入完成前擋住儲存（偽 Note 的空 content 一旦存回去就把真內容洗掉了）
+  const [hydrated, setHydrated] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [query, setQuery] = useState("");
@@ -108,6 +131,44 @@ export default function NotesBoard({
   const lastMutationAt = useRef(0);
 
   useEffect(() => setOrigin(window.location.origin), []);
+
+  // 掛載後立刻抓全文補齊首屏摘要（失敗時 focus resync 會再補）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await adminFetch("/api/notes?full=1");
+        if (!res.ok) return;
+        const { notes: full } = (await res.json()) as { notes: Note[] };
+        if (cancelled || lastMutationAt.current > 0) return;
+        setNotes(full);
+        setHydrated(true);
+      } catch {
+        /* 稍後由 focus resync 重試 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 全文補齊完成時，若已有選取的筆記（水合前以空內容顯示），以真實內容刷新 draft
+  useEffect(() => {
+    if (!hydrated || !selectedId) return;
+    const n = notes.find((x) => x.id === selectedId);
+    if (n) {
+      setDraft({
+        title: n.title,
+        content: n.content,
+        tags: [...n.tags],
+        type: n.type,
+        isShared: n.isShared,
+        steps: cloneSteps(n.steps),
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
 
   function flash(msg: string) {
     setToast(msg);
@@ -226,6 +287,7 @@ export default function NotesBoard({
       setNotes((cur) =>
         JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
       );
+      setHydrated(true); // resync 拿的也是全文，視為已水合
       // 正在檢視的筆記（無未存變更）也同步 draft——否則 dirty 會誤判成
       // 「有變更」，下一次儲存就把另一部裝置的編輯蓋回舊內容
       if (selectedId) {
@@ -333,6 +395,14 @@ export default function NotesBoard({
   // patch 可覆寫 draft（供分享開關立即存檔使用）
   async function persist(patch?: Partial<Draft>) {
     if (!selectedId) return;
+    // 偽 Note（首屏摘要撐起的，以 shareToken 空值辨識）還沒載入全文：
+    // 此時 draft 是空內容，存回去會把真實內容洗掉，先擋下。
+    // 水合前「新建」的筆記是伺服器回傳的完整資料（有 shareToken），不受影響。
+    const target = notes.find((n) => n.id === selectedId);
+    if (target && !target.shareToken) {
+      flash("筆記內容載入中，請稍候再儲存");
+      return;
+    }
     lastMutationAt.current = Date.now();
     const payload = { ...draft, ...patch };
     setSaving(true);
