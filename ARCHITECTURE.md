@@ -136,8 +136,13 @@ siddblue-system/
 - **Server Components**（`app/**/page.tsx`）在伺服器端直接呼叫 `lib/kv.ts` / `lib/workspace-kv.ts` / `lib/notes-kv.ts` 讀取資料，並把資料當 props 傳給 Client Component。所有讀取一律呼叫 `unstable_noStore()`，避免 Next.js 快取造成資料過期。
 - **Client Components**（編輯器、看板、待辦、對外頁）以 `fetch` 呼叫 `/api/*` 進行寫入。
 - **樂觀更新 (Optimistic UI)**：靈感看板與待辦清單在本機先更新畫面，再 `PUT` 整個 board 回 KV，寫入後**不重新讀取**（故 Upstash 讀取複本延遲對使用者無影響）。
+- **統一 fetch 封裝（`lib/api-client.ts` → `adminFetch`）**：所有看板的 API 呼叫都經 `adminFetch`（介面同原生 fetch）；cookie 過期（30 天）後所有寫入會 401，樂觀更新會讓畫面「看起來有存」但實際全部沒落地——`adminFetch` 偵測到第一個 401 即跳出「登入已過期」確認框引導重新登入（只提示一次，避免並發請求連環跳框）。登入本身（`POST /api/admin/login`）不可用此封裝，那裡的 401 是密碼錯誤。
+- **看板版本號（防跨裝置互蓋）**：`workspace:todos` / `workspace:inspirations` 存為 `{ board, rev }` 包裝（舊裸資料視為 rev 0）。PUT 帶上讀取時的 `rev`，與現存不符回 **409 + 最新內容**——前端丟棄本地過期酬載（`useQueuedSave.clear()`）、載入最新並以 toast 提醒，取代過去「手機 PWA 與桌機互相以舊快照默默蓋掉對方」的資料遺失。不帶 rev 的 PUT（舊 client / 備份還原）維持無條件覆寫。
+- **beforeunload 守衛**：`useQueuedSave` 有在途或排隊中的酬載時攔截關閉/重整分頁——樂觀更新讓畫面看起來已完成，但 KV 寫入可能還在路上。
 - **防寫入亂序（`app/admin/hooks.ts` → `useQueuedSave`）**：整包覆寫 PUT 若併發送出，HTTP 回應順序不保證，舊請求可能最後落地、以舊蓋新。看板的 persist 一律經佇列：同時最多一個請求在途，期間的變更只保留最新酬載、完成後補送一次（序列化＋合併），連續快速拖曳也不會遺失資料。
 - **切回分頁重新同步（`useSyncOnFocus`）**：看板資料只在頁面載入時由 Server Component 帶入，之後皆為客戶端狀態；跨裝置編輯或 Client Router Cache 供應過期 RSC payload 時畫面會停留在舊資料。監聽 `focus` / `visibilitychange`，切回分頁時重抓 `GET /api/*` 更新狀態（編輯中、儲存中、或 10 秒內剛改過則跳過，避免讀取複本延遲反而蓋掉新資料）。⚠️ 光是進入 callback 前檢查還不夠——若 focus 事件在 10 秒保護期剛過就觸發、`fetch` 進行期間使用者剛好又新增了一筆，這份回應送達時已經是過期快照，仍會不分青紅皂白蓋掉剛新增的項目（曾在 TodoBoard／InspirationBoard 實際重現：新增後畫面上內容憑空消失，但 KV 其實有存到）。因此兩處呼叫端都在 `fetch` **前**記錄 `requestedAt = Date.now()`，await 結束後若 `lastMutationAt.current >= requestedAt`（代表這段等待期間又有更新）就捨棄這份回應、不套用，而不是只在呼叫前檢查一次。
+- **focus resync 全面化**：七個面板（含知識庫/案件/人脈/支出/報價列表）都掛 `useSyncOnFocus`，Modal 開啟、draft dirty、儲存中或 10 秒內剛寫入則跳過；NotesBoard 經 `GET /api/notes?full=1` 同步全文並在乾淨時刷新開啟中的 draft（否則 dirty 誤判會讓下一次儲存把另一裝置的編輯蓋回舊內容），筆記在別處被刪除時自動退回列表。
+- **跨頁籤共享狀態（AdminWorkspace）**：各板以 `onCasesChange`/`onContactsChange`/`onQuotesChange` 把自己的最新資料回報父層，父層以 `casesShared`/`contactsShared`/`quotesShared` state 餵給「另一個板」的跨實體檢視（案件的夥伴下拉、人脈的相關案件、案件的關聯報價單）——修掉「先在人脈庫新增夥伴、切到案件管理卻選不到」的定格快照問題。
 - **後台頁籤**：`AdminWorkspace` 一次掛載七個面板，以 `hidden` class 切換（非 remount），切換頁籤時各自狀態不流失、不重整整頁。手機底部導覽為 7 欄。
 - **全域搜尋**：`AdminWorkspace` 的 🔍 搜尋框（44px 觸控高度、16px 字級防 iOS 聚焦縮放）以 props 傳入當前頁籤的面板即打即過濾——寫作靈感比對標題＋內容（跨四欄），知識庫比對標題＋內容＋標籤（與列表內搜尋 AND 疊加），案件比對名稱＋備註＋夥伴，人脈比對姓名＋職業＋聯絡方式＋網址＋備註，支出比對項目名稱＋備註。**搜尋中拖曳自動暫停**：過濾後的 Draggable index 與原陣列不對齊，放行拖曳會排錯位置，故 `isDragDisabled` 直到清除搜尋。
 
@@ -151,8 +156,8 @@ Vercel KV（Upstash Redis）中的所有 key：
 | --- | --- | --- | --- |
 | `quote:{id}` | JSON (string) | 單筆報價單 `Quote` | `lib/kv.ts` |
 | `quotes:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/kv.ts` |
-| `workspace:inspirations` | JSON (string) | 整個靈感看板 `InspirationBoard`（單一 blob） | `lib/workspace-kv.ts` |
-| `workspace:todos` | JSON (string) | 整個待辦清單 `TodoBoard`（單一 blob） | `lib/workspace-kv.ts` |
+| `workspace:inspirations` | JSON (string) | `{ board: InspirationBoard, rev: number }`（單一 blob + 版本號；舊裸資料視為 rev 0） | `lib/workspace-kv.ts` |
+| `workspace:todos` | JSON (string) | `{ board: TodoBoard, rev: number }`（同上） | `lib/workspace-kv.ts` |
 | `note:{id}` | JSON (string) | 單筆知識庫筆記 `Note` | `lib/notes-kv.ts` |
 | `notes:index` | Sorted Set | 後台列表索引；`member = id`，`score = updatedAt(ms)`，供新→舊排序 | `lib/notes-kv.ts` |
 | `note:share:{token}` | string | `shareToken → id` 反查對應，供對外分享頁 O(1) 查詢；刪除筆記時一併移除 | `lib/notes-kv.ts` |
@@ -166,6 +171,7 @@ Vercel KV（Upstash Redis）中的所有 key：
 | `backups:index` | Sorted Set | 備份快照索引；`member = 備份 id`，`score = 建立時間(ms)` | `lib/backup.ts` |
 | `backup:meta:{id}` | JSON (string) | 單份備份的輕量摘要（時間 + 各模組筆數），列表用 | `lib/backup.ts` |
 | `backup:data:{id}` | JSON (string) | 單份備份的完整資料，只在還原時讀取 | `lib/backup.ts` |
+| `backup:lastError` | JSON (string) | 最近一次備份失敗紀錄 `{at, message}`，成功即清除；後台備份面板據此顯示告警 | `lib/backup.ts` |
 | `test:siddblue` | JSON (string) | 連線健檢暫存資料，讀回後即刪除（除非 `?keep=1`） | `app/api/test-db/route.ts` |
 
 > 型別的唯一真實來源是 `lib/types.ts`。以下定義與該檔一致。
@@ -491,11 +497,11 @@ type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
 | `PATCH /api/quotes/[id]` | **僅切換狀態**，body `{ status }`；非法值回 `400` | 需登入 | `updateQuoteStatus()` |
 | `DELETE /api/quotes/[id]` | 刪除報價單（同時移出 index） | 需登入 | `deleteQuote()` |
 | `POST /api/quotes/[id]/accept` | 客戶線上確認，body `{ name }`；首次確認後鎖定，並將 `status` 設為 `confirmed` | **公開** | `acceptQuote()` |
-| `GET /api/inspirations` | 讀取整個靈感看板 `{ board }` | 需登入 | `getInspirations()` |
-| `PUT /api/inspirations` | 覆寫整個靈感看板，body `{ board }` | 需登入 | `saveInspirations()` |
-| `GET /api/todos` | 讀取整個待辦清單 `{ board }` | 需登入 | `getTodos()` |
-| `PUT /api/todos` | 覆寫整個待辦清單，body `{ board }` | 需登入 | `saveTodos()` |
-| `GET /api/notes` | 列出所有筆記摘要（新→舊，不含 content） | 需登入 | `listNotes()` |
+| `GET /api/inspirations` | 讀取整個靈感看板 `{ board, rev }` | 需登入 | `getInspirationsView()` |
+| `PUT /api/inspirations` | 覆寫整個靈感看板，body `{ board, rev? }`；rev 不符回 `409` + 最新內容 | 需登入 | `saveInspirations()` |
+| `GET /api/todos` | 讀取整個待辦清單 `{ board, rev }` | 需登入 | `getTodosView()` |
+| `PUT /api/todos` | 覆寫整個待辦清單，body `{ board, rev? }`；rev 不符回 `409` + 最新內容 | 需登入 | `saveTodos()` |
+| `GET /api/notes` | 列出所有筆記摘要（新→舊，不含 content）；`?full=1` 回完整筆記（resync/水合用） | 需登入 | `listNotes()` / `getAllNotes()` |
 | `POST /api/notes` | 建立新筆記（自動產生 `shareToken`） | 需登入 | `createNote()` |
 | `GET /api/notes/[id]` | 讀取單筆筆記（後台用） | 需登入 | `getNote()` |
 | `PUT /api/notes/[id]` | 更新筆記（保留 `id`/`shareToken`/`createdAt`） | 需登入 | `updateNote()` |
@@ -522,8 +528,8 @@ type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
 | `POST /api/matrix` | ✨ 內容矩陣引擎：body `{ title, content }` → `{ script }`（300 字內短影音腳本）。未設 `OPENAI_API_KEY` 回 503 | 需登入 | `generateText()`（ai + @ai-sdk/openai，`gpt-4o`） |
 | `GET /api/backup/export` | 匯出目前全部資料為 JSON 檔（`Content-Disposition: attachment`） | 需登入 | `exportAllData()` |
 | `GET /api/backup/snapshot` | 建立一份備份快照，自動輪替只保留最近 7 份 | 需登入 **或** Cron（見 §5.7） | `snapshotBackup()` |
-| `GET /api/backup/list` | 列出所有備份快照（新→舊，含各模組筆數摘要） | 需登入 | `listBackups()` |
-| `POST /api/backup/restore` | **危險操作**：還原至指定快照，body `{ id }`，會清空並覆寫目前全部資料 | 需登入 | `restoreBackup()` |
+| `GET /api/backup/list` | 列出所有備份快照（新→舊，含各模組筆數摘要）＋ `lastError`（最近一次備份失敗紀錄） | 需登入 | `listBackups()` + `getBackupError()` |
+| `POST /api/backup/restore` | **危險操作**：還原至指定快照，body `{ id }`，會清空並覆寫目前全部資料；**還原前自動先快照當下狀態**（後悔藥） | 需登入 | `restoreBackup()` |
 | `POST /api/admin/login` | 驗證密碼、設定 `sb_admin` cookie；同 IP 15 分鐘內失敗 5 次鎖定 15 分鐘（回 429） | 公開 | `verifyPassword()` + `lib/login-throttle.ts` |
 | `DELETE /api/admin/login` | 登出（清 cookie） | 公開 | — |
 | `GET /api/test-db` | KV 連線健檢（寫→讀→比對→刪）；`?keep=1` 保留 | 公開 | 直接呼叫 `kv` |
@@ -592,6 +598,7 @@ function computeTotals(items: QuoteItem[], taxInclusive: boolean): QuoteTotals;
 - **啟用判斷**：`KV_ENABLED = Boolean(KV_REST_API_URL && KV_REST_API_TOKEN)`。
 - **記憶體後援**：未設定 KV 時自動改用 in-memory Map / 變數，`next dev` 可直接跑（重啟即清空），方便先試 UI。
 - **防過期**：每個讀取 helper 開頭都呼叫 `unstable_noStore()`，強制不進 Next.js data cache（否則 Server Component 會服務到舊資料）。
+- **批次讀取（mget）**：所有 `getAll*`/`list*` 以 `zrange` 拿 id 後用**單一 `kv.mget`** 讀回全部，不做逐筆 `kv.get`——後者是每筆一個 HTTP round-trip 的 N+1，一次 `/admin` 載入曾發出 100+ 個 Upstash 指令（延遲與計費都隨資料量線性成長）。新增模組請沿用 mget 慣例。
 - **健檢**：`GET /api/test-db` 會偵測環境變數是否存在（不外洩內容）、寫入→讀回→比對，並針對 `Unauthorized` / 網路錯誤給出對應提示。
 
 > ⚠️ 本機開發預設連的是**線上正式 KV**。跑測試腳本務必自行清除測試資料。
@@ -647,8 +654,8 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 
 - **開關**：未設定 `ADMIN_PASSWORD` → `isAuthenticated()` 恆為 `true`（開放，利於本機）；設定後才啟用保護。
 - **登入**：`POST /api/admin/login` 用 `crypto.timingSafeEqual` 比對密碼（等長才比，避免時序攻擊），通過後種下 cookie。
-- **Cookie**：名稱 `sb_admin`，值為 **不可逆令牌** `sha256(ADMIN_PASSWORD + "::siddblue-quote-system")`（不存明碼）；`httpOnly`、`sameSite=lax`、正式環境 `secure`、有效期 30 天。
-- **驗證**：`isAuthenticated()` 比對請求 cookie 是否等於 `expectedToken()`。
+- **Cookie**：名稱 `sb_admin`，值為**帶效期的簽章令牌** `${到期時間ms}.${HMAC-SHA256(到期時間ms)}`，HMAC 金鑰由密碼推導（`sha256(ADMIN_PASSWORD + "::siddblue-quote-system")`，不存明碼）；`httpOnly`、`sameSite=lax`、正式環境 `secure`、效期 30 天（`TOKEN_TTL_SECONDS`，與令牌內嵌到期時間對齊）。令牌被竊也只在效期內有效；改密碼即讓所有既存令牌立即失效。
+- **驗證**：`isAuthenticated()` 解析令牌 → 檢查格式/效期 → `timingSafeEqual` 比對簽章，缺一不可。cookie 過期後前端由 `adminFetch` 統一跳「登入已過期」提示（見 §2）。
 - **保護範圍**：`/admin` 頁面（`app/admin/page.tsx`）＋所有寫入類 API（quotes 的 POST/PUT/PATCH/DELETE、inspirations/todos 的 GET/PUT）。
 - **公開例外**：`GET /api/quotes/[id]` 與 `POST /api/quotes/[id]/accept`（對外報價/確認頁需要）。
 
@@ -663,12 +670,19 @@ function collectPartnerDues(cases: Case[]): PartnerDue[];
 - **匯出（`exportAllData()`）**：平行讀取七個模組的完整資料（報價單、靈感看板、待辦清單、知識庫、案件管理、人脈庫含手動排序、支出紀錄），組成單一 `BackupPayload` JSON 物件。`GET /api/backup/export` 直接回傳此物件並帶 `Content-Disposition: attachment`，後台按「匯出 JSON」即下載。
 - **快照（`snapshotBackup()`）**：呼叫 `exportAllData()`，以 `nanoid(12)` 產生備份 id，寫入 `backup:data:{id}`（完整內容）與 `backup:meta:{id}`（時間 + 各模組筆數的輕量摘要），並把 id 存進 `backups:index`（sorted set，score=建立時間）。**輪替**：寫入後檢查 `backups:index` 筆數，超過 7 份即刪除最舊的（`rotateBackups()`）。
 - **列表（`listBackups()`）**：只讀取輕量的 `backup:meta:{id}`，不觸碰大型的 `backup:data:{id}`，列表載入快速。
-- **還原（`restoreBackup(id)`）**——⚠️ **危險操作**：讀出該快照的完整 payload，平行呼叫七個模組各自的 `restore*()` 函式（`restoreQuotes()` / `saveInspirations()` / `saveTodos()` / `restoreNotesData()` / `restoreCasesData()` / `restoreContactsData()` / `restoreExpensesData()`），每個都是「先清空現有全部 key、再依快照內容重新寫入」，讓還原後的狀態與快照當時**完全一致**（而非合併）。`payload.expenses ?? []` 相容新增支出模組前建立的舊快照（缺此欄位）。UI 層（`BackupPanel`）在呼叫前以 `window.confirm()` 顯示快照時間與各模組筆數，要求使用者二次確認；還原成功後自動重整頁面。
+- **還原（`restoreBackup(id)`）**——⚠️ **危險操作**：讀出該快照的完整 payload 後，**先自動為「當下狀態」建立一份快照**（meta 帶「還原前自動快照」註記，fail-closed：快照失敗即中止還原）——誤按還原永遠有後悔藥；接著平行呼叫七個模組各自的 `restore*()` 函式（`restoreQuotes()` / `saveInspirations()` / `saveTodos()` / `restoreNotesData()` / `restoreCasesData()` / `restoreContactsData()` / `restoreExpensesData()`），每個都以**單一 `kv.pipeline()`** 送出「清空現有全部 key + 依快照內容重新寫入」（一個 HTTP 請求、近原子，避免逐筆 round-trip 在資料量大時觸發 serverless 超時、留下半空資料庫；restore/snapshot/export 三個 route 皆設 `maxDuration = 60`），讓還原後的狀態與快照當時**完全一致**（而非合併）。`payload.expenses ?? []` 相容新增支出模組前建立的舊快照（缺此欄位）。UI 層（`BackupPanel`）在呼叫前以 `window.confirm()` 顯示快照時間與各模組筆數，要求使用者二次確認；還原成功後自動重整頁面。
+- **備份健康告警**：快照失敗時寫入 `backup:lastError`（成功即清除），`GET /api/backup/list` 一併回傳；`BackupPanel` 顯示紅色告警，另外最新快照超過 36 小時也顯示過期警告（涵蓋「Cron 根本沒在跑」的情況）——每日備份不再可能默默失敗數月無人知。
 - **每日自動快照（Vercel Cron）**：`vercel.json` 設定 `crons: [{ path: "/api/backup/snapshot", schedule: "0 18 * * *" }]`（UTC 18:00 = 台北 02:00）。Vercel Cron 只送 `GET`；`/api/backup/snapshot` 的 `isCronOrAdmin()` 判斷請求是否帶有 `Authorization: Bearer <CRON_SECRET>`（Vercel 在設定 `CRON_SECRET` 環境變數後會自動附加此標頭），否則退回一般的 `isAuthenticated()` cookie 驗證（供後台「立即備份」手動按鈕使用）。
   > ⚠️ 需在 **Vercel Dashboard → Project → Settings → Environment Variables** 手動設定 `CRON_SECRET`（任意隨機字串，如 `openssl rand -hex 32`）才能讓每日排程通過驗證；未設定前，排程呼叫會被拒絕（401），但手動備份按鈕不受影響。
 - **記憶體後援**：本機無 KV 時，快照存於 `globalThis.__sbBackupsMem`（同其餘 `*-kv.ts` 慣例），重啟即清空，方便安全地在本機測試還原流程而不動到正式 KV。
 
-### 5.8 PWA（加到主畫面）
+### 5.8 行動端（iOS Safari）慣例
+
+- **Modal 一律鎖定背景捲動**：`useBodyScrollLock`（`app/admin/hooks.ts`）以標準 position:fixed 技法在 Modal 開啟時固定 body、關閉時還原捲動座標（巢狀 Modal 也正確還原）。iOS 上沒鎖的 `fixed inset-0` Modal 會 scroll chaining 捲動背景頁。新增 Modal 請以「實際渲染條件」呼叫此 hook（如 `Boolean(editingCase)`，非 `Boolean(modalId)`——id 指向已刪資料時 Modal 不渲染但鎖仍生效）。
+- **Modal 高度用 `dvh` 不用 `vh`**：iOS 動態工具列使 `vh` 偏大，鍵盤彈出時底部按鈕會被推出可視區。
+- **日期格式化一律走 `lib/format.ts` 的 `fmtDateTimeTW`/`fmtDateTW`**（SSR-safe 手動 UTC+8，不經 Intl）；勿在元件內自刻 `toLocaleString`——SSR (UTC) 與客戶端輸出不一致是 hydration mismatch 的溫床。
+
+### 5.9 PWA（加到主畫面）
 
 讓手機瀏覽器可將 `/admin` 後台「加到主畫面」，以接近原生 App 的獨立視窗開啟：
 
