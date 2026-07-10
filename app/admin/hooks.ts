@@ -48,7 +48,16 @@ export function useQueuedSave<T>(save: (payload: T) => Promise<void>) {
     [],
   );
 
-  return { enqueue, saving, isBusy };
+  /**
+   * 丟棄排隊中的酬載（不影響在途請求）。
+   * 用於版本衝突（409）後：排隊中的整包酬載是基於過期狀態算出來的，
+   * 若照常補送會拿舊內容蓋掉剛從伺服器同步回來的最新資料。
+   */
+  const clear = useCallback(() => {
+    queued.current = null;
+  }, []);
+
+  return { enqueue, saving, isBusy, clear };
 }
 
 /**

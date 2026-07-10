@@ -164,10 +164,14 @@ function ReminderWhenInput({
 
 export default function TodoBoard({
   initialBoard,
+  initialRev,
 }: {
   initialBoard: BoardData;
+  /** 看板版本號（防跨裝置互蓋）：PUT 帶回、409 時同步最新 */
+  initialRev: number;
 }) {
   const [board, setBoard] = useState<BoardData>(initialBoard);
+  const revRef = useRef(initialRev);
   const [drafts, setDrafts] = useState<Record<TodoBucket, string>>({
     now: "",
     later: "",
@@ -203,16 +207,32 @@ export default function TodoBoard({
     window.setTimeout(() => setToast(""), 2200);
   }
 
-  // 寫回 KV：經佇列序列化＋合併，避免連續拖曳時 PUT 亂序（舊蓋新）
-  const { enqueue, saving, isBusy } = useQueuedSave<BoardData>(
+  // 寫回 KV：經佇列序列化＋合併，避免連續拖曳時 PUT 亂序（舊蓋新）。
+  // 每次 PUT 帶上 rev 版本號：收到 409 代表另一部裝置在這期間寫入過，
+  // 丟棄本地過期內容、載入最新資料並提醒使用者（而非默默互蓋）。
+  const { enqueue, saving, isBusy, clear } = useQueuedSave<BoardData>(
     async (payload) => {
       try {
         const res = await adminFetch("/api/todos", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ board: payload }),
+          body: JSON.stringify({ board: payload, rev: revRef.current }),
         });
+        if (res.status === 409) {
+          const { board: fresh, rev } = (await res.json()) as {
+            board: BoardData;
+            rev: number;
+          };
+          revRef.current = rev;
+          clear(); // 排隊中的酬載也基於過期狀態，一併丟棄
+          lastMutationAt.current = 0;
+          setBoard(fresh);
+          flash("⚠️ 另一部裝置更新過待辦清單，已載入最新內容，請確認剛才的變更");
+          return;
+        }
         if (!res.ok) throw new Error();
+        const { rev } = (await res.json()) as { rev?: number };
+        if (typeof rev === "number") revRef.current = rev;
       } catch {
         flash("儲存失敗，請稍後再試");
       }
@@ -236,10 +256,14 @@ export default function TodoBoard({
     try {
       const res = await adminFetch("/api/todos");
       if (!res.ok) return;
-      const { board: fresh } = (await res.json()) as { board: BoardData };
+      const { board: fresh, rev } = (await res.json()) as {
+        board: BoardData;
+        rev: number;
+      };
       // fetch 進行期間若又發生本地變更（例如剛新增任務），這份回應已經是
       // 過期快照，不能覆蓋，否則會把剛新增的項目蓋掉
       if (lastMutationAt.current >= requestedAt) return;
+      if (typeof rev === "number") revRef.current = rev;
       setBoard((cur) =>
         JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
       );

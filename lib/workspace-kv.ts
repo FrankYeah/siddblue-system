@@ -16,8 +16,15 @@ import type {
 //  創作者工作區資料層 (Vercel KV)
 //
 //  儲存結構 (單一 JSON blob，方便拖曳整體重排、原子寫入)：
-//    workspace:inspirations → InspirationBoard  (依欄位分組)
-//    workspace:todos        → TodoBoard         (依分區分組)
+//    workspace:inspirations → { board: InspirationBoard, rev: number }
+//    workspace:todos        → { board: TodoBoard,        rev: number }
+//
+//  rev 為遞增版本號，防「跨裝置/跨分頁互蓋」：整包覆寫 PUT 若帶上
+//  expectedRev 且與現存不符，代表另一個裝置在這期間寫入過 ——
+//  拒絕寫入並回傳最新內容，而不是默默用舊快照蓋掉對方的變更。
+//  （useQueuedSave 只能序列化「同一個分頁」內的請求，跨裝置管不到）
+//  版本與資料存在同一個 key，單次 SET 原子落地、不會 split-brain。
+//  舊資料是裸看板（無包裝），讀取時視為 rev 0，無需遷移。
 //
 //  沿用 lib/kv.ts 的慣例：讀取一律 noStore()；未設定 KV 時用記憶體後援。
 // ─────────────────────────────────────────────────────────────
@@ -40,6 +47,13 @@ const mem = ((
     };
   }
 ).__sbWorkspaceMem ??= { inspirations: null, todos: null });
+
+// 版本號的記憶體後援獨立掛載，避免動到既有 __sbWorkspaceMem 的形狀
+const memRev = ((
+  globalThis as unknown as {
+    __sbWorkspaceRevMem?: { inspirations: number; todos: number };
+  }
+).__sbWorkspaceRevMem ??= { inspirations: 0, todos: 0 });
 
 const INSPIRATION_STATUSES: InspirationStatus[] = [
   "idea",
@@ -145,46 +159,112 @@ export function sanitizeTodoBoard(raw: unknown): TodoBoard {
   return board;
 }
 
-// ── 靈感看板 ──
+// ── 版本包裝 ──
 
-export async function getInspirations(): Promise<InspirationBoard> {
-  noStore();
-  if (KV_ENABLED) {
-    const raw = await kv.get<InspirationBoard>(INSPIRATIONS_KEY);
-    return sanitizeInspirationBoard(raw);
+/** 拆開 { board, rev } 包裝；舊資料是裸看板 → 視為 rev 0 */
+function unwrapStored(raw: unknown): { board: unknown; rev: number } {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "board" in (raw as Record<string, unknown>) &&
+    "rev" in (raw as Record<string, unknown>)
+  ) {
+    const w = raw as { board: unknown; rev: unknown };
+    const rev = Number(w.rev);
+    return {
+      board: w.board,
+      rev: Number.isInteger(rev) && rev >= 0 ? rev : 0,
+    };
   }
-  return mem.inspirations ?? emptyInspirationBoard();
+  return { board: raw, rev: 0 };
 }
 
+/** 版本化寫入的結果：ok=false 代表版本衝突，附上最新內容供呼叫端同步 */
+export type SaveBoardResult<T> = { ok: boolean; board: T; rev: number };
+
+// ── 靈感看板 ──
+
+export async function getInspirationsView(): Promise<{
+  board: InspirationBoard;
+  rev: number;
+}> {
+  noStore();
+  if (KV_ENABLED) {
+    const raw = await kv.get(INSPIRATIONS_KEY);
+    const { board, rev } = unwrapStored(raw);
+    return { board: sanitizeInspirationBoard(board), rev };
+  }
+  return {
+    board: mem.inspirations ?? emptyInspirationBoard(),
+    rev: memRev.inspirations,
+  };
+}
+
+export async function getInspirations(): Promise<InspirationBoard> {
+  return (await getInspirationsView()).board;
+}
+
+/**
+ * 儲存靈感看板。expectedRev 有值且與現存版本不符時拒絕（回 ok:false 與最新內容）；
+ * 未帶 expectedRev（舊 client / 備份還原）維持無條件覆寫。
+ */
 export async function saveInspirations(
   raw: unknown,
-): Promise<InspirationBoard> {
+  expectedRev?: number,
+): Promise<SaveBoardResult<InspirationBoard>> {
   const board = sanitizeInspirationBoard(raw);
+  const current = await getInspirationsView();
+  if (expectedRev !== undefined && expectedRev !== current.rev) {
+    return { ok: false, board: current.board, rev: current.rev };
+  }
+  const rev = current.rev + 1;
   if (KV_ENABLED) {
-    await kv.set(INSPIRATIONS_KEY, board);
+    await kv.set(INSPIRATIONS_KEY, { board, rev });
   } else {
     mem.inspirations = board;
+    memRev.inspirations = rev;
   }
-  return board;
+  return { ok: true, board, rev };
 }
 
 // ── 待辦清單 ──
 
-export async function getTodos(): Promise<TodoBoard> {
+export async function getTodosView(): Promise<{
+  board: TodoBoard;
+  rev: number;
+}> {
   noStore();
   if (KV_ENABLED) {
-    const raw = await kv.get<TodoBoard>(TODOS_KEY);
-    return sanitizeTodoBoard(raw);
+    const raw = await kv.get(TODOS_KEY);
+    const { board, rev } = unwrapStored(raw);
+    return { board: sanitizeTodoBoard(board), rev };
   }
-  return mem.todos ?? emptyTodoBoard();
+  return { board: mem.todos ?? emptyTodoBoard(), rev: memRev.todos };
 }
 
-export async function saveTodos(raw: unknown): Promise<TodoBoard> {
+export async function getTodos(): Promise<TodoBoard> {
+  return (await getTodosView()).board;
+}
+
+/**
+ * 儲存待辦清單。expectedRev 有值且與現存版本不符時拒絕（回 ok:false 與最新內容）；
+ * 未帶 expectedRev（舊 client / 備份還原）維持無條件覆寫。
+ */
+export async function saveTodos(
+  raw: unknown,
+  expectedRev?: number,
+): Promise<SaveBoardResult<TodoBoard>> {
   const board = sanitizeTodoBoard(raw);
+  const current = await getTodosView();
+  if (expectedRev !== undefined && expectedRev !== current.rev) {
+    return { ok: false, board: current.board, rev: current.rev };
+  }
+  const rev = current.rev + 1;
   if (KV_ENABLED) {
-    await kv.set(TODOS_KEY, board);
+    await kv.set(TODOS_KEY, { board, rev });
   } else {
     mem.todos = board;
+    memRev.todos = rev;
   }
-  return board;
+  return { ok: true, board, rev };
 }

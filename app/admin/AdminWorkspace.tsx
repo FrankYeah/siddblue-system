@@ -54,7 +54,9 @@ const SEARCH_PLACEHOLDER: Partial<Record<Tab, string>> = {
 export default function AdminWorkspace({
   initialQuotes,
   initialInspirations,
+  initialInspirationsRev,
   initialTodos,
+  initialTodosRev,
   initialNotes,
   initialCases,
   initialContacts,
@@ -64,7 +66,11 @@ export default function AdminWorkspace({
 }: {
   initialQuotes: QuoteSummary[];
   initialInspirations: InspirationBoardData;
+  /** 靈感看板的版本號（防跨裝置互蓋，見 lib/workspace-kv.ts） */
+  initialInspirationsRev: number;
   initialTodos: TodoBoardData;
+  /** 待辦清單的版本號 */
+  initialTodosRev: number;
   initialNotes: Note[];
   initialCases: Case[];
   initialContacts: Contact[];
@@ -199,11 +205,12 @@ export default function AdminWorkspace({
         <div className={tab === "inspiration" ? "animate-fade-in" : "hidden"}>
           <InspirationBoard
             initialBoard={initialInspirations}
+            initialRev={initialInspirationsRev}
             searchQuery={tab === "inspiration" ? search : ""}
           />
         </div>
         <div className={tab === "todo" ? "animate-fade-in" : "hidden"}>
-          <TodoBoard initialBoard={initialTodos} />
+          <TodoBoard initialBoard={initialTodos} initialRev={initialTodosRev} />
         </div>
         <div className={tab === "knowledge" ? "animate-fade-in" : "hidden"}>
           <NotesBoard
