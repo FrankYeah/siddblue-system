@@ -25,6 +25,7 @@ import {
 import TextareaAutosize from "react-textarea-autosize";
 import { renderMarkdown } from "@/lib/markdown";
 import type { Note, NoteType, ProcessStep } from "@/lib/types";
+import { adminFetch } from "@/lib/api-client";
 
 // 「載入諮詢模板」填入的 Markdown 結構
 const CONSULTING_TEMPLATE = `## 諮詢提問
@@ -126,7 +127,7 @@ export default function NotesBoard({
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch("/api/notes/upload", {
+      const res = await adminFetch("/api/notes/upload", {
         method: "POST",
         body: form,
       });
@@ -249,7 +250,7 @@ export default function NotesBoard({
     if (!from || !to || to === from) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/notes/tags/rename", {
+      const res = await adminFetch("/api/notes/tags/rename", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ from, to }),
@@ -278,7 +279,7 @@ export default function NotesBoard({
   async function newNote() {
     setSaving(true);
     try {
-      const res = await fetch("/api/notes", {
+      const res = await adminFetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(EMPTY_DRAFT),
@@ -300,7 +301,7 @@ export default function NotesBoard({
     const payload = { ...draft, ...patch };
     setSaving(true);
     try {
-      const res = await fetch(`/api/notes/${selectedId}`, {
+      const res = await adminFetch(`/api/notes/${selectedId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -328,7 +329,7 @@ export default function NotesBoard({
     if (!window.confirm("確定刪除這則筆記？此動作無法復原。")) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/notes/${id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/notes/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       setNotes((ns) => ns.filter((n) => n.id !== id));
       if (selectedId === id) setSelectedId(null);

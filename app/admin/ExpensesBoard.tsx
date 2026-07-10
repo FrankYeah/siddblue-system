@@ -20,6 +20,7 @@ import type {
   ExpenseEntity,
   ExpenseInput,
 } from "@/lib/types";
+import { adminFetch } from "@/lib/api-client";
 
 // ─────────────────────────────────────────────────────────────
 //  💳 金流與支出管理 (Expense Tracking)
@@ -178,7 +179,7 @@ export default function ExpensesBoard({
     setSaving(true);
     try {
       if (creating) {
-        const res = await fetch("/api/expenses", {
+        const res = await adminFetch("/api/expenses", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(draft),
@@ -188,7 +189,7 @@ export default function ExpensesBoard({
         setExpenses((es) => [expense, ...es]);
         flash("已新增");
       } else if (modalId) {
-        const res = await fetch(`/api/expenses/${modalId}`, {
+        const res = await adminFetch(`/api/expenses/${modalId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(draft),
@@ -211,7 +212,7 @@ export default function ExpensesBoard({
     if (!window.confirm("確定刪除這筆支出？此動作無法復原。")) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/expenses/${id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/expenses/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       setExpenses((es) => es.filter((e) => e.id !== id));
       setModalId(null);

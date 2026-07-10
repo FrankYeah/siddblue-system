@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Loader2,
 } from "lucide-react";
+import { adminFetch } from "@/lib/api-client";
 
 // ─────────────────────────────────────────────────────────────
 //  📦 資料備份與匯出 (Backup & Export Widget)
@@ -64,7 +65,7 @@ export default function BackupPanel() {
   async function loadList() {
     setLoading(true);
     try {
-      const res = await fetch("/api/backup/list");
+      const res = await adminFetch("/api/backup/list");
       if (!res.ok) throw new Error();
       const { backups: list } = (await res.json()) as {
         backups: BackupMeta[];
@@ -89,7 +90,7 @@ export default function BackupPanel() {
   async function snapshotNow() {
     setBusy(true);
     try {
-      const res = await fetch("/api/backup/snapshot");
+      const res = await adminFetch("/api/backup/snapshot");
       if (!res.ok) throw new Error();
       flash("已建立備份");
       await loadList();
@@ -105,7 +106,7 @@ export default function BackupPanel() {
     if (!window.confirm(msg)) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/backup/restore", {
+      const res = await adminFetch("/api/backup/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: b.id }),

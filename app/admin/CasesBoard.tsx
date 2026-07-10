@@ -36,6 +36,7 @@ import type {
   PaymentEntry,
   QuoteSummary,
 } from "@/lib/types";
+import { adminFetch } from "@/lib/api-client";
 
 // ─────────────────────────────────────────────────────────────
 //  💼 案件與財務管理 (Case & Finance Management)
@@ -546,7 +547,7 @@ export default function CasesBoard({
   async function newCase(type: CaseType) {
     setSaving(true);
     try {
-      const res = await fetch("/api/cases", {
+      const res = await adminFetch("/api/cases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -572,7 +573,7 @@ export default function CasesBoard({
     if (!modalId) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/cases/${modalId}`, {
+      const res = await adminFetch(`/api/cases/${modalId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
@@ -594,7 +595,7 @@ export default function CasesBoard({
     if (!window.confirm("確定刪除這個案件？此動作無法復原。")) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/cases/${id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/cases/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       setCases((cs) => cs.filter((c) => c.id !== id));
       setModalId(null);

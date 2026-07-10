@@ -41,6 +41,7 @@ import type {
 } from "@/lib/types";
 import { partnerCostPaid } from "@/lib/finance";
 import { formatCurrency } from "@/lib/format";
+import { adminFetch } from "@/lib/api-client";
 
 // ─────────────────────────────────────────────────────────────
 //  🤝 人脈資料庫 (Connections CRM) — Notion 風格資料表
@@ -237,7 +238,7 @@ export default function ContactsBoard({
     order: string[] | null;
   }>(async ({ order }) => {
     try {
-      const res = await fetch("/api/contacts", {
+      const res = await adminFetch("/api/contacts", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order }),
@@ -476,7 +477,7 @@ export default function ContactsBoard({
     setSaving(true);
     try {
       if (modal.mode === "edit") {
-        const res = await fetch(`/api/contacts/${modal.id}`, {
+        const res = await adminFetch(`/api/contacts/${modal.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(draft),
@@ -488,7 +489,7 @@ export default function ContactsBoard({
         );
         flash("已儲存");
       } else {
-        const res = await fetch("/api/contacts", {
+        const res = await adminFetch("/api/contacts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(draft),
@@ -517,7 +518,7 @@ export default function ContactsBoard({
     if (!window.confirm("確定刪除這位聯絡人？此動作無法復原。")) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/contacts/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       const next = contacts.filter((c) => c.id !== id);
       setContacts(next);
@@ -545,7 +546,7 @@ export default function ContactsBoard({
       if (!window.confirm(`將匯入 ${rows.length} 位聯絡人${detail}，確定？`)) {
         return;
       }
-      const res = await fetch("/api/contacts/import", {
+      const res = await adminFetch("/api/contacts/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contacts: rows }),

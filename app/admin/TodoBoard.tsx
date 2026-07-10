@@ -16,6 +16,7 @@ import type {
   TodoBoard as BoardData,
   TodoBucket,
 } from "@/lib/types";
+import { adminFetch } from "@/lib/api-client";
 
 const BUCKETS: { key: TodoBucket; title: string; accent: string }[] = [
   { key: "now", title: "🔥 立即處理", accent: "border-t-red-400" },
@@ -206,7 +207,7 @@ export default function TodoBoard({
   const { enqueue, saving, isBusy } = useQueuedSave<BoardData>(
     async (payload) => {
       try {
-        const res = await fetch("/api/todos", {
+        const res = await adminFetch("/api/todos", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ board: payload }),
@@ -233,7 +234,7 @@ export default function TodoBoard({
     if (Date.now() - lastMutationAt.current < 10_000) return;
     const requestedAt = Date.now();
     try {
-      const res = await fetch("/api/todos");
+      const res = await adminFetch("/api/todos");
       if (!res.ok) return;
       const { board: fresh } = (await res.json()) as { board: BoardData };
       // fetch 進行期間若又發生本地變更（例如剛新增任務），這份回應已經是

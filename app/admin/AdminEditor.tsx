@@ -41,6 +41,7 @@ import type {
   QuoteStatus,
   QuoteSummary,
 } from "@/lib/types";
+import { adminFetch } from "@/lib/api-client";
 
 // 報價單狀態徽章樣式 (草稿=灰 / 已發送=藍 / 已確認=綠)
 const STATUS_ORDER: QuoteStatus[] = ["draft", "sent", "confirmed"];
@@ -296,7 +297,7 @@ export default function AdminEditor({
   // ── 載入既有報價單編輯 ──
   async function editQuote(id: string) {
     try {
-      const res = await fetch(`/api/quotes/${id}`);
+      const res = await adminFetch(`/api/quotes/${id}`);
       if (!res.ok) throw new Error();
       const { quote } = (await res.json()) as { quote: Quote };
       setForm(quoteToInput(quote));
@@ -313,7 +314,7 @@ export default function AdminEditor({
   // ── 複製為新報價單 (載入資料，存檔時建立副本) ──
   async function duplicateQuote(id: string) {
     try {
-      const res = await fetch(`/api/quotes/${id}`);
+      const res = await adminFetch(`/api/quotes/${id}`);
       if (!res.ok) throw new Error();
       const { quote } = (await res.json()) as { quote: Quote };
       const input = quoteToInput(quote);
@@ -335,7 +336,7 @@ export default function AdminEditor({
   // ── 刪除 ──
   async function removeQuote(id: string) {
     if (!confirm("確定要刪除這份報價單嗎？此動作無法復原。")) return;
-    const res = await fetch(`/api/quotes/${id}`, { method: "DELETE" });
+    const res = await adminFetch(`/api/quotes/${id}`, { method: "DELETE" });
     if (res.ok) {
       setQuotes((qs) => qs.filter((q) => q.id !== id));
       if (currentId === id) newQuote();
@@ -350,7 +351,7 @@ export default function AdminEditor({
     setOpenStatusId(null);
     setQuotes((qs) => qs.map((q) => (q.id === id ? { ...q, status } : q)));
     try {
-      const res = await fetch(`/api/quotes/${id}`, {
+      const res = await adminFetch(`/api/quotes/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -372,7 +373,7 @@ export default function AdminEditor({
     try {
       const url = currentId ? `/api/quotes/${currentId}` : "/api/quotes";
       const method = currentId ? "PUT" : "POST";
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

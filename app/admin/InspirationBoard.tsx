@@ -15,6 +15,7 @@ import type {
   InspirationBoard as BoardData,
   InspirationStatus,
 } from "@/lib/types";
+import { adminFetch } from "@/lib/api-client";
 
 const COLUMNS: {
   key: InspirationStatus;
@@ -83,7 +84,7 @@ export default function InspirationBoard({
   const { enqueue, saving, isBusy } = useQueuedSave<BoardData>(
     async (payload) => {
       try {
-        const res = await fetch("/api/inspirations", {
+        const res = await adminFetch("/api/inspirations", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ board: payload }),
@@ -110,7 +111,7 @@ export default function InspirationBoard({
     if (Date.now() - lastMutationAt.current < 10_000) return;
     const requestedAt = Date.now();
     try {
-      const res = await fetch("/api/inspirations");
+      const res = await adminFetch("/api/inspirations");
       if (!res.ok) return;
       const { board: fresh } = (await res.json()) as { board: BoardData };
       // fetch 進行期間若又發生本地變更（例如剛新增卡片），這份回應已經是
@@ -199,7 +200,7 @@ export default function InspirationBoard({
     }
     setGenerating(true);
     try {
-      const res = await fetch("/api/matrix", {
+      const res = await adminFetch("/api/matrix", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: draftTitle, content }),
