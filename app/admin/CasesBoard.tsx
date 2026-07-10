@@ -37,7 +37,7 @@ import type {
   QuoteSummary,
 } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
-import { useBodyScrollLock } from "./hooks";
+import { useBodyScrollLock, useSyncOnFocus } from "./hooks";
 
 // ─────────────────────────────────────────────────────────────
 //  💼 案件與財務管理 (Case & Finance Management)
@@ -392,6 +392,7 @@ export default function CasesBoard({
   quotes,
   contacts,
   onOpenContact,
+  onCasesChange,
   focusCaseId = null,
   onFocusHandled,
   searchQuery = "",
@@ -403,6 +404,8 @@ export default function CasesBoard({
   contacts: Contact[];
   /** 點夥伴「連過去」→ 切到人脈庫並開啟該聯絡人 Modal */
   onOpenContact?: (id: string) => void;
+  /** 案件資料變更時回報父層（供人脈庫「相關案件」等跨頁籤檢視同步） */
+  onCasesChange?: (cases: Case[]) => void;
   /** 由他處（人脈庫「相關案件」）指定要開啟詳情的案件 id */
   focusCaseId?: string | null;
   /** 已處理 focus 後通知父層清除，避免重複開啟 */
@@ -452,6 +455,33 @@ export default function CasesBoard({
     : null;
   // Modal 開啟時鎖定背景捲動（iOS scroll chaining）；渲染條件即 editingCase
   useBodyScrollLock(Boolean(editingCase));
+
+  // 案件變更回報父層：讓人脈庫的「相關案件」等跨頁籤檢視不再停留在載入時的定格快照
+  useEffect(() => {
+    onCasesChange?.(cases);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cases]);
+
+  // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
+  // Modal 開啟或儲存中跳過；10 秒內剛寫入過也跳過。
+  const lastMutationAt = useRef(0);
+  useSyncOnFocus(async () => {
+    if (modalId || saving) return;
+    if (Date.now() - lastMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
+    try {
+      const res = await adminFetch("/api/cases");
+      if (!res.ok) return;
+      const { cases: fresh } = (await res.json()) as { cases: Case[] };
+      // fetch 進行期間若又發生本地寫入，這份回應已是過期快照，不能套用
+      if (lastMutationAt.current >= requestedAt) return;
+      setCases((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
 
   // 🔔 催款提醒：所有「有未收款餘額」的案件 (金額大 → 小)；已結案不再提醒催款
   const unpaidCases = useMemo(
@@ -548,6 +578,7 @@ export default function CasesBoard({
   }, [modalId, dirty]);
 
   async function newCase(type: CaseType) {
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch("/api/cases", {
@@ -574,6 +605,7 @@ export default function CasesBoard({
 
   async function persist() {
     if (!modalId) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch(`/api/cases/${modalId}`, {
@@ -596,6 +628,7 @@ export default function CasesBoard({
 
   async function remove(id: string) {
     if (!window.confirm("確定刪除這個案件？此動作無法復原。")) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch(`/api/cases/${id}`, { method: "DELETE" });

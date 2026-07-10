@@ -29,7 +29,7 @@ import {
   professionColor,
   buildProfessionColorMap,
 } from "@/lib/contacts-sort";
-import { useBodyScrollLock, useQueuedSave } from "./hooks";
+import { useBodyScrollLock, useQueuedSave, useSyncOnFocus } from "./hooks";
 import type {
   Case,
   Contact,
@@ -187,6 +187,7 @@ export default function ContactsBoard({
   initialOrdered,
   cases = [],
   onOpenCase,
+  onContactsChange,
   focusContactId = null,
   onFocusHandled,
   searchQuery = "",
@@ -198,6 +199,8 @@ export default function ContactsBoard({
   cases?: Case[];
   /** 點「相關案件」→ 切到案件管理並開啟該案件 Modal */
   onOpenCase?: (id: string) => void;
+  /** 聯絡人資料變更時回報父層（供案件管理的夥伴下拉等跨頁籤檢視同步） */
+  onContactsChange?: (contacts: Contact[]) => void;
   /** 由他處（案件管理夥伴「連過去」）指定要開啟詳情的聯絡人 id */
   focusContactId?: string | null;
   /** 已處理 focus 後通知父層清除，避免重複開啟 */
@@ -251,8 +254,38 @@ export default function ContactsBoard({
     }
   });
 
+  // 聯絡人變更回報父層：讓案件管理的夥伴下拉等跨頁籤檢視不再停留在載入時的定格快照
+  useEffect(() => {
+    onContactsChange?.(contacts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contacts]);
+
+  // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
+  // Modal 開啟、匯入中、儲存中或排序寫入中跳過；10 秒內剛寫入過也跳過。
+  const lastMutationAt = useRef(0);
+  useSyncOnFocus(async () => {
+    if (modal || importing || saving || orderSaving) return;
+    if (Date.now() - lastMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
+    try {
+      const res = await adminFetch("/api/contacts");
+      if (!res.ok) return;
+      const { contacts: fresh, ordered: freshOrdered } =
+        (await res.json()) as { contacts: Contact[]; ordered: boolean };
+      // fetch 進行期間若又發生本地寫入，這份回應已是過期快照，不能套用
+      if (lastMutationAt.current >= requestedAt) return;
+      setOrdered(freshOrdered);
+      setContacts((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
+
   /** 套用新顯示順序並持久化 (拖曳 / 插入 / 刪除後) */
   function applyManualOrder(next: Contact[]) {
+    lastMutationAt.current = Date.now();
     setContacts(next);
     setOrdered(true);
     enqueueOrder({ order: next.map((c) => c.id) });
@@ -476,6 +509,7 @@ export default function ContactsBoard({
 
   async function save() {
     if (!modal) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       if (modal.mode === "edit") {
@@ -518,6 +552,7 @@ export default function ContactsBoard({
 
   async function remove(id: string) {
     if (!window.confirm("確定刪除這位聯絡人？此動作無法復原。")) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch(`/api/contacts/${id}`, { method: "DELETE" });
@@ -536,6 +571,7 @@ export default function ContactsBoard({
 
   // ── CSV 整批匯入 ──
   async function importCsv(file: File) {
+    lastMutationAt.current = Date.now();
     setImporting(true);
     try {
       const text = await file.text();

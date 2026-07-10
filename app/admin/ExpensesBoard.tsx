@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Trash2,
@@ -21,7 +21,7 @@ import type {
   ExpenseInput,
 } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
-import { useBodyScrollLock } from "./hooks";
+import { useBodyScrollLock, useSyncOnFocus } from "./hooks";
 
 // ─────────────────────────────────────────────────────────────
 //  💳 金流與支出管理 (Expense Tracking)
@@ -117,6 +117,27 @@ export default function ExpensesBoard({
   // Modal 開啟時鎖定背景捲動（iOS scroll chaining）
   useBodyScrollLock(modalOpen);
 
+  // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
+  // Modal 開啟或儲存中跳過；10 秒內剛寫入過也跳過。
+  const lastMutationAt = useRef(0);
+  useSyncOnFocus(async () => {
+    if (modalOpen || saving) return;
+    if (Date.now() - lastMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
+    try {
+      const res = await adminFetch("/api/expenses");
+      if (!res.ok) return;
+      const { expenses: fresh } = (await res.json()) as { expenses: Expense[] };
+      // fetch 進行期間若又發生本地寫入，這份回應已是過期快照，不能套用
+      if (lastMutationAt.current >= requestedAt) return;
+      setExpenses((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
+
   // 🏢🧑 每月固定支出 (Burn Rate)：monthly 全額 + yearly / 12，依歸屬分組
   const burnRate = useMemo(() => {
     let company = 0;
@@ -179,6 +200,7 @@ export default function ExpensesBoard({
   }, [modalOpen, dirty]);
 
   async function save() {
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       if (creating) {
@@ -213,6 +235,7 @@ export default function ExpensesBoard({
 
   async function remove(id: string) {
     if (!window.confirm("確定刪除這筆支出？此動作無法復原。")) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch(`/api/expenses/${id}`, { method: "DELETE" });

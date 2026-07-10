@@ -86,6 +86,15 @@ export default function AdminWorkspace({
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   // 跨頁籤（反向）：人脈的「相關案件」→ 切到案件管理並打開該案件的 Modal
   const [focusCaseId, setFocusCaseId] = useState<string | null>(null);
+  // 跨頁籤共享狀態：各板以 on*Change 回報自己的最新資料，
+  // 供「另一個板」的跨實體檢視使用（案件的夥伴下拉吃 contacts、
+  // 人脈的相關案件吃 cases、案件的關聯報價單吃 quotes）——
+  // 修掉「先在人脈庫新增夥伴、切到案件管理卻選不到」的定格快照問題
+  const [casesShared, setCasesShared] = useState<Case[]>(initialCases);
+  const [contactsShared, setContactsShared] =
+    useState<Contact[]>(initialContacts);
+  const [quotesShared, setQuotesShared] =
+    useState<QuoteSummary[]>(initialQuotes);
 
   function openContact(id: string) {
     setSearch("");
@@ -189,14 +198,18 @@ export default function AdminWorkspace({
           手機底部留白，避免內容被固定底部導覽遮住 */}
       <main className="pb-24 sm:pb-0">
         <div className={tab === "quote" ? "animate-fade-in" : "hidden"}>
-          <AdminEditor initialQuotes={initialQuotes} />
+          <AdminEditor
+            initialQuotes={initialQuotes}
+            onQuotesChange={setQuotesShared}
+          />
         </div>
         <div className={tab === "cases" ? "animate-fade-in" : "hidden"}>
           <CasesBoard
             initialCases={initialCases}
-            quotes={initialQuotes}
-            contacts={initialContacts}
+            quotes={quotesShared}
+            contacts={contactsShared}
             onOpenContact={openContact}
+            onCasesChange={setCasesShared}
             focusCaseId={focusCaseId}
             onFocusHandled={() => setFocusCaseId(null)}
             searchQuery={tab === "cases" ? search : ""}
@@ -222,8 +235,9 @@ export default function AdminWorkspace({
           <ContactsBoard
             initialContacts={initialContacts}
             initialOrdered={initialContactsOrdered}
-            cases={initialCases}
+            cases={casesShared}
             onOpenCase={openCase}
+            onContactsChange={setContactsShared}
             focusContactId={focusContactId}
             onFocusHandled={() => setFocusContactId(null)}
             searchQuery={tab === "contacts" ? search : ""}

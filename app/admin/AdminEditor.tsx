@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Trash2,
@@ -42,6 +42,7 @@ import type {
   QuoteSummary,
 } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
+import { useSyncOnFocus } from "./hooks";
 
 // 報價單狀態徽章樣式 (草稿=灰 / 已發送=藍 / 已確認=綠)
 const STATUS_ORDER: QuoteStatus[] = ["draft", "sent", "confirmed"];
@@ -68,10 +69,42 @@ const STATUS_META: Record<
 
 export default function AdminEditor({
   initialQuotes,
+  onQuotesChange,
 }: {
   initialQuotes: QuoteSummary[];
+  /** 報價單列表變更時回報父層（供案件管理「關聯報價單」下拉同步） */
+  onQuotesChange?: (quotes: QuoteSummary[]) => void;
 }) {
   const [quotes, setQuotes] = useState<QuoteSummary[]>(initialQuotes);
+
+  // 報價單列表回報父層：讓案件管理的「關聯報價單」下拉不再停留在載入時的定格快照
+  useEffect(() => {
+    onQuotesChange?.(quotes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes]);
+
+  // 切回分頁時重新同步「列表」（跨裝置編輯 / 客戶剛線上確認 → 徽章變綠）。
+  // 只更新左側清單，不碰編輯中的表單；儲存中或 10 秒內剛寫入過則跳過。
+  const lastQuotesMutationAt = useRef(0);
+  useSyncOnFocus(async () => {
+    if (saving) return;
+    if (Date.now() - lastQuotesMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
+    try {
+      const res = await adminFetch("/api/quotes");
+      if (!res.ok) return;
+      const { quotes: fresh } = (await res.json()) as {
+        quotes: QuoteSummary[];
+      };
+      // fetch 進行期間若又發生本地寫入，這份回應已是過期快照，不能套用
+      if (lastQuotesMutationAt.current >= requestedAt) return;
+      setQuotes((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
   const [form, setForm] = useState<QuoteInput>(buildDefaultQuoteInput());
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -336,6 +369,7 @@ export default function AdminEditor({
   // ── 刪除 ──
   async function removeQuote(id: string) {
     if (!confirm("確定要刪除這份報價單嗎？此動作無法復原。")) return;
+    lastQuotesMutationAt.current = Date.now();
     const res = await adminFetch(`/api/quotes/${id}`, { method: "DELETE" });
     if (res.ok) {
       setQuotes((qs) => qs.filter((q) => q.id !== id));
@@ -349,6 +383,7 @@ export default function AdminEditor({
   // ── 切換報價單狀態 (列表快速操作，樂觀更新 + PATCH) ──
   async function changeStatus(id: string, status: QuoteStatus) {
     setOpenStatusId(null);
+    lastQuotesMutationAt.current = Date.now();
     setQuotes((qs) => qs.map((q) => (q.id === id ? { ...q, status } : q)));
     try {
       const res = await adminFetch(`/api/quotes/${id}`, {
@@ -369,6 +404,7 @@ export default function AdminEditor({
       notify("請先填寫專案 / 客戶名稱");
       return;
     }
+    lastQuotesMutationAt.current = Date.now();
     setSaving(true);
     try {
       const url = currentId ? `/api/quotes/${currentId}` : "/api/quotes";

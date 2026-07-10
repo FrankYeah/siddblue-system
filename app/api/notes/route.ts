@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { createNote, listNotes } from "@/lib/notes-kv";
+import { createNote, getAllNotes, listNotes } from "@/lib/notes-kv";
 import type { NoteInput } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // GET /api/notes — 列出所有筆記摘要 (後台用，需驗證)
-export async function GET() {
+// ?full=1 回傳完整筆記（含 content/steps），供 NotesBoard 切回分頁時重新同步
+export async function GET(req: NextRequest) {
   if (!isAuthenticated()) {
     return NextResponse.json({ error: "未授權" }, { status: 401 });
   }
-  const notes = await listNotes();
+  const full = req.nextUrl.searchParams.get("full") === "1";
+  const notes = full ? await getAllNotes() : await listNotes();
   return NextResponse.json({ notes });
 }
 

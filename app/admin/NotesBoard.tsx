@@ -26,6 +26,7 @@ import TextareaAutosize from "react-textarea-autosize";
 import { renderMarkdown } from "@/lib/markdown";
 import type { Note, NoteType, ProcessStep } from "@/lib/types";
 import { adminFetch } from "@/lib/api-client";
+import { useSyncOnFocus } from "./hooks";
 
 // 「載入諮詢模板」填入的 Markdown 結構
 const CONSULTING_TEMPLATE = `## 諮詢提問
@@ -113,6 +114,8 @@ export default function NotesBoard({
   const [uploading, setUploading] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 最後一次寫入的時間戳：focus 重新同步時避免過期回應蓋掉剛寫入的內容
+  const lastMutationAt = useRef(0);
 
   useEffect(() => setOrigin(window.location.origin), []);
 
@@ -217,6 +220,46 @@ export default function NotesBoard({
       JSON.stringify(draft.steps) !== JSON.stringify(selected.steps)
     : false;
 
+  // 切回分頁時重新同步（跨裝置編輯 / Router Cache 過期資料）。
+  // 儲存/上傳/改名中、或正在編輯且有未存變更時跳過；10 秒內剛寫入過也跳過。
+  useSyncOnFocus(async () => {
+    if (saving || uploading || renamingTag !== null) return;
+    if (selected && dirty) return;
+    if (Date.now() - lastMutationAt.current < 10_000) return;
+    const requestedAt = Date.now();
+    try {
+      const res = await adminFetch("/api/notes?full=1");
+      if (!res.ok) return;
+      const { notes: fresh } = (await res.json()) as { notes: Note[] };
+      // fetch 進行期間若又發生本地寫入，這份回應已是過期快照，不能套用
+      if (lastMutationAt.current >= requestedAt) return;
+      setNotes((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+      // 正在檢視的筆記（無未存變更）也同步 draft——否則 dirty 會誤判成
+      // 「有變更」，下一次儲存就把另一部裝置的編輯蓋回舊內容
+      if (selectedId) {
+        const freshSelected = fresh.find((n) => n.id === selectedId);
+        if (!freshSelected) {
+          // 筆記在別處被刪除：退回列表，避免編輯一筆已不存在的資料
+          setSelectedId(null);
+          setMobileStep("list");
+        } else {
+          setDraft({
+            title: freshSelected.title,
+            content: freshSelected.content,
+            tags: [...freshSelected.tags],
+            type: freshSelected.type,
+            isShared: freshSelected.isShared,
+            steps: cloneSteps(freshSelected.steps),
+          });
+        }
+      }
+    } catch {
+      /* 同步失敗不打擾使用者，下次 focus 再試 */
+    }
+  });
+
   function selectNote(n: Note) {
     setSelectedId(n.id);
     setDraft({
@@ -248,6 +291,7 @@ export default function NotesBoard({
     const to = renameValue.trim();
     setRenamingTag(null);
     if (!from || !to || to === from) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch("/api/notes/tags/rename", {
@@ -277,6 +321,7 @@ export default function NotesBoard({
   }
 
   async function newNote() {
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch("/api/notes", {
@@ -298,6 +343,7 @@ export default function NotesBoard({
   // patch 可覆寫 draft（供分享開關立即存檔使用）
   async function persist(patch?: Partial<Draft>) {
     if (!selectedId) return;
+    lastMutationAt.current = Date.now();
     const payload = { ...draft, ...patch };
     setSaving(true);
     try {
@@ -327,6 +373,7 @@ export default function NotesBoard({
 
   async function remove(id: string) {
     if (!window.confirm("確定刪除這則筆記？此動作無法復原。")) return;
+    lastMutationAt.current = Date.now();
     setSaving(true);
     try {
       const res = await adminFetch(`/api/notes/${id}`, { method: "DELETE" });
